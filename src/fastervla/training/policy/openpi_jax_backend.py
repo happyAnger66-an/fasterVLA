@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from fastervla.training.policy.dataset_plan import build_dataset_plan
+from fastervla.training.policy.dataset_plan import validate_dataset_plan_for_openpi_fake
 from fastervla.training.policy.openpi_bridge import VelocitySkipConfig
+from fastervla.training.policy.train_recipe import TrainRecipe
 
 _LOG = logging.getLogger(__name__)
 
@@ -190,4 +193,23 @@ def run_openpi_debug_train(
         steps=int(num_steps),
         params_updated=bool(params_updated),
         config_name=config_name,
+    )
+
+
+def run_train_from_recipe(
+    recipe: TrainRecipe,
+    *,
+    checkpoint_base_dir: str | Path,
+) -> OpenpiDebugRunResult:
+    """Validate dataset plan, then run openpi debug train from a recipe.
+
+    Validation runs before importing openpi so fake+long-window fails cheaply.
+    """
+    plan = build_dataset_plan(recipe)
+    validate_dataset_plan_for_openpi_fake(plan)
+    return run_openpi_debug_train(
+        config_name=recipe.openpi_config,
+        num_steps=recipe.num_steps,
+        checkpoint_base_dir=checkpoint_base_dir,
+        skip_cfg=recipe.skip_cfg,
     )

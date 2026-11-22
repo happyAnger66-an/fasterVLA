@@ -41,13 +41,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"checkpoint_dir={args.checkpoint_dir}")
             return 0
 
-        from fastervla.training.policy.openpi_jax_backend import run_openpi_debug_train
+        from fastervla.training.policy.openpi_jax_backend import run_train_from_recipe
 
-        result = run_openpi_debug_train(
-            config_name=recipe.openpi_config,
-            num_steps=recipe.num_steps,
+        result = run_train_from_recipe(
+            recipe,
             checkpoint_base_dir=args.checkpoint_dir,
-            skip_cfg=recipe.skip_cfg,
         )
         print(
             f"done steps={result.steps} losses={result.losses} "
