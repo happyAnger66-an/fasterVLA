@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 from typing import Mapping
+from typing import Protocol
 from typing import Sequence
 
 import numpy as np
@@ -108,3 +109,48 @@ class VelocitySkipActions:
         out = dict(data)
         out[key] = chunk
         return out
+
+
+@dataclass(frozen=True)
+class TrainStepResult:
+    """Outcome of a single injected training step."""
+
+    loss: float
+    params_updated: bool
+
+
+class TrainBackend(Protocol):
+    """Minimal openpi-facing backend: one forward/backward/update step."""
+
+    def train_step(self, batch: Mapping[str, Any]) -> float:
+        """Run one train step on a sample/batch; return scalar loss."""
+
+
+def run_one_train_step(
+    *,
+    dataset: Any,
+    skip_cfg: VelocitySkipConfig,
+    backend: TrainBackend,
+    index: int = 0,
+) -> TrainStepResult:
+    """Take one dataset sample, apply velocity-skip, run one backend train step.
+
+    Real openpi JAX can be injected as ``backend``; unit tests use a fake.
+    """
+    sample = dataset[int(index)]
+    if not isinstance(sample, Mapping):
+        raise TypeError(
+            f"dataset sample must be a mapping, got {type(sample).__name__}"
+        )
+
+    batch = VelocitySkipActions(skip_cfg)(sample)
+
+    has_param = hasattr(backend, "param")
+    before = getattr(backend, "param", None) if has_param else None
+    loss = float(backend.train_step(batch))
+    if has_param:
+        params_updated = getattr(backend, "param") != before
+    else:
+        params_updated = True
+
+    return TrainStepResult(loss=loss, params_updated=params_updated)
