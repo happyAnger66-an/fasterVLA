@@ -16,6 +16,9 @@ dev = ["pytest>=8.0"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "openpi: needs openpi + jax (debug train smoke)",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
