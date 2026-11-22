@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
+from fastervla.training.policy.dataset_plan import build_dataset_plan
 from fastervla.training.policy.train_recipe import format_recipe_summary
 from fastervla.training.policy.train_recipe import load_train_recipe
 
@@ -37,7 +38,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "train":
         recipe = load_train_recipe(args.recipe)
         if args.dry_run:
+            plan = build_dataset_plan(recipe)
             print(format_recipe_summary(recipe))
+            print(
+                f"delta_timestamps_len={len(next(iter(plan.delta_timestamps.values())))} "
+                f"requires_real_dataset={plan.requires_real_dataset}"
+            )
             print(f"checkpoint_dir={args.checkpoint_dir}")
             return 0
 

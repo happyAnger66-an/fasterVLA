@@ -1,0 +1,10 @@
+openpi_config: debug_pi05
+skip_frames: true
+horizon: 50
+window: 50
+fps: 30.0
+limits_path: joint_velocity_limits.yaml
+action_keys:
+- actions
+repo_id: fake
+num_steps: 2

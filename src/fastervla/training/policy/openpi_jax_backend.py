@@ -74,18 +74,27 @@ def _create_data_loader_with_optional_skip(
     *,
     skip_cfg: VelocitySkipConfig | None,
     sharding: Any,
+    plan: Any | None = None,
+    dataset_factory: Any | None = None,
 ) -> Any:
     import jax
     from openpi.training import data_loader as openpi_data_loader
 
+    from fastervla.training.policy.create_dataset import create_dataset_from_plan
     from fastervla.training.policy.dataset_assembly import wrap_dataset_with_velocity_skip
 
     data_config = config.data.create(config.assets_dirs, config.model)
-    dataset = openpi_data_loader.create_torch_dataset(
-        data_config, config.model.action_horizon, config.model
-    )
-    if skip_cfg is not None:
-        dataset = wrap_dataset_with_velocity_skip(dataset, skip_cfg)
+
+    if plan is not None and plan.repo_id != "fake":
+        # Real / injected dataset: window timestamps + velocity skip already applied.
+        dataset = create_dataset_from_plan(plan, dataset_factory=dataset_factory)
+    else:
+        dataset = openpi_data_loader.create_torch_dataset(
+            data_config, config.model.action_horizon, config.model
+        )
+        if skip_cfg is not None:
+            dataset = wrap_dataset_with_velocity_skip(dataset, skip_cfg)
+
     dataset = openpi_data_loader.transform_dataset(
         dataset, data_config, skip_norm_stats=True
     )
@@ -110,10 +119,13 @@ def run_openpi_debug_train(
     num_steps: int = 1,
     checkpoint_base_dir: str | Path,
     skip_cfg: VelocitySkipConfig | None = None,
+    plan: Any | None = None,
+    dataset_factory: Any | None = None,
 ) -> OpenpiDebugRunResult:
     """Run ``num_steps`` of openpi training on a debug config.
 
     Optionally wraps the dataset with velocity-skip before openpi transforms.
+    When ``plan.repo_id != "fake"``, builds the dataset via ``create_dataset_from_plan``.
     Prefers CPU when ``JAX_PLATFORMS`` is unset (smoke-friendly).
     """
     if num_steps <= 0:
@@ -158,7 +170,11 @@ def run_openpi_debug_train(
     replicated_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
 
     data_loader = _create_data_loader_with_optional_skip(
-        config, skip_cfg=skip_cfg, sharding=data_sharding
+        config,
+        skip_cfg=skip_cfg,
+        sharding=data_sharding,
+        plan=plan,
+        dataset_factory=dataset_factory,
     )
     data_iter = iter(data_loader)
     batch = next(data_iter)
@@ -200,10 +216,12 @@ def run_train_from_recipe(
     recipe: TrainRecipe,
     *,
     checkpoint_base_dir: str | Path,
+    dataset_factory: Any | None = None,
 ) -> OpenpiDebugRunResult:
     """Validate dataset plan, then run openpi debug train from a recipe.
 
     Validation runs before importing openpi so fake+long-window fails cheaply.
+    Non-fake ``repo_id`` uses ``create_dataset_from_plan`` (injectable factory).
     """
     plan = build_dataset_plan(recipe)
     validate_dataset_plan_for_openpi_fake(plan)
@@ -212,4 +230,6 @@ def run_train_from_recipe(
         num_steps=recipe.num_steps,
         checkpoint_base_dir=checkpoint_base_dir,
         skip_cfg=recipe.skip_cfg,
+        plan=plan,
+        dataset_factory=dataset_factory,
     )

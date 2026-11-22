@@ -1,0 +1,11 @@
+# Template: set repo_id to a real LeRobot dataset; window > horizon enables skip.
+openpi_config: debug_pi05
+skip_frames: true
+horizon: 50
+window: 200
+fps: 30.0
+limits_path: joint_velocity_limits.yaml
+action_keys:
+- actions
+repo_id: local/REPLACE_ME
+num_steps: 1000
