@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AcadosMpcTracker · 作用与处理流程</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #10131a;
+      --bg1: #171c26;
+      --bg2: #1f2633;
+      --ink: #e8ecf4;
+      --muted: #8b93a7;
+      --line: #2c3448;
+      --a: #5b9fd4;
+      --b: #3db89a;
+      --path: #c9a86c;
+      --tick: #f0c14a;
+      --warn: #d45d5d;
+      --lock: #b07cc9;
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --serif: "IBM Plex Serif", Georgia, serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 0% 0%, #1a2838 0%, transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, #1a2a20 0%, transparent 50%),
+        var(--bg0);
+      line-height: 1.55;
+      font-size: 16px;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 44px 20px 96px; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--b); margin: 0 0 10px;
+    }
+    h1 {
+      font-family: var(--serif); font-weight: 600;
+      font-size: clamp(1.55rem, 3.4vw, 2.1rem);
+      margin: 0 0 12px; letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .lede { color: var(--muted); max-width: 44em; margin: 0 0 24px; }
+    h2 { font-family: var(--serif); font-size: 1.25rem; margin: 36px 0 10px; }
+    h3 { font-size: 1.02rem; margin: 18px 0 8px; }
+    p { color: var(--muted); margin: 0 0 12px; }
+    ul, ol { color: var(--muted); margin: 0 0 14px; padding-left: 1.25em; }
+    li { margin: 0 0 6px; }
+    code { font-family: var(--mono); font-size: 0.88em; color: var(--tick); }
+    strong { color: var(--ink); font-weight: 600; }
+    a { color: var(--a); }
+    .card {
+      background: color-mix(in srgb, var(--bg1) 92%, transparent);
+      border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px; margin: 12px 0 18px;
+    }
+    .grid2 {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+    .pane {
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; background: var(--bg1);
+    }
+    .pane h3 { margin: 0 0 6px; font-size: 0.95rem; }
+    .pane .sub { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+    .pill {
+      display: inline-block; font-family: var(--mono); font-size: 10px;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid; margin-right: 4px;
+    }
+    .pill.a { color: var(--a); border-color: var(--a); }
+    .pill.b { color: var(--b); border-color: var(--b); }
+    .pill.path { color: var(--path); border-color: var(--path); }
+    .pill.warn { color: var(--warn); border-color: var(--warn); }
+    .toc {
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 22px;
+    }
+    .toc a {
+      font-family: var(--mono); font-size: 12px; text-decoration: none;
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: 6px 10px; color: var(--muted); background: var(--bg1);
+    }
+    .toc a:hover { color: var(--ink); border-color: var(--a); }
+    table.kv {
+      width: 100%; border-collapse: collapse; font-size: 0.92rem;
+    }
+    table.kv th, table.kv td {
+      text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    table.kv th {
+      font-family: var(--mono); font-size: 12px; color: var(--tick);
+      white-space: nowrap; width: 28%; font-weight: 500;
+    }
+    table.kv td { color: var(--muted); }
+    .eq {
+      font-family: var(--mono); font-size: 0.88em; color: var(--ink);
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 8px; padding: 10px 12px; margin: 8px 0 14px;
+      overflow-x: auto; white-space: pre-wrap;
+    }
+    .note {
+      font-size: 0.9rem; color: var(--muted);
+      border: 1px dashed var(--line); border-radius: 10px;
+      padding: 10px 12px; margin: 10px 0 16px;
+    }
+    .flow-wrap {
+      overflow-x: auto; margin: 12px 0;
+      border: 1px solid var(--line); border-radius: 12px;
+      background: var(--bg1); padding: 12px 8px;
+    }
+    svg.flow { width: 100%; min-width: 680px; height: auto; display: block; }
+    .status { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+    footer {
+      margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+      font-size: 12px; color: var(--muted); font-family: var(--mono);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="eyebrow">fasterVLA · F4 · L3 Tracker</p>
+    <h1><code>AcadosMpcTracker</code>：作用与处理流程</h1>
+    <p class="lede">
+      端侧空间跟踪器：用滞后估计的 <code>q̂</code> 追 PlanBuffer 参考，在 100 Hz 环上解短时域臂 MPC；
+      超时或失败则降级到已验证的 <code>LeadTracker</code>，保证热路径不断命令。
+      实现：<code>tracker/acados_mpc.py</code> + <code>tracker/arm_mpc_acados.py</code>（移植 V2 <code>AcadosPlanner</code> 的 SQP-RTI OCP）。
+    </p>
+    <p class="status">契约：design §5.2 · deploy-g2-plan §4.5 · <code>tests/deploy/test_acados_mpc_tracker.py</code> · extra：<code>fastervla[mpc]</code> + 系统 acados</p>
+
+    <nav class="toc" aria-label="目录">
+      <a href="#why">为什么需要</a>
+      <a href="#place">在栈中的位置</a>
+      <a href="#io">输入 / 输出</a>
+      <a href="#flow">处理流程</a>
+      <a href="#problem">MPC 问题轮廓</a>
+      <a href="#fallback">降级策略</a>
+      <a href="#config">关键配置</a>
+    </nav>
+
+    <h2 id="why">为什么需要</h2>
+    <div class="grid2">
+      <div class="pane">
+        <h3><span class="pill path">已有</span> LeadTracker</h3>
+        <p class="sub">F2 soft lead 基线</p>
+        <p style="margin:0;font-size:0.92rem">
+          开环：<code>u ≈ r + clip(gain · (·))</code>。
+          1.0× 够用；κ 升高后难显式守住 <code>Δy</code> / 加速度盒。
+        </p>
+      </div>
+      <div class="pane">
+        <h3><span class="pill b">F4</span> AcadosMpcTracker</h3>
+        <p class="sub">闭环约束跟踪</p>
+        <p style="margin:0;font-size:0.92rem">
+          从 <code>q̂</code> 出发短时域优化，硬约束增量与速率；
+          求解不可靠时<strong>退回 Lead</strong>，不堵控制环。
+        </p>
+      </div>
+    </div>
+    <p>
+      TimeAxisQP（L2）只改<strong>时间轴</strong>、不改路径；
+      MPC（L3）在<strong>关节空间</strong>上把「参考 → 可执行命令」压进物理盒。
+      二者分工：κ / QP 决定「路点何时到」，MPC 决定「这一拍命令往哪拧」。
+    </p>
+
+    <h2 id="place">在栈中的位置</h2>
+    <div class="eq">InferenceLoop / ControlLoop @ 100 Hz
+  PlanBuffer.reference(...)     →  reference r (21)
+  LagStateEstimator.estimate()  →  q̂ (14 臂)
+           │
+           ▼
+  AcadosMpcTracker.step(q̂, r, ref_ahead, ref_vel, now)
+           │ 成功                    │ 失败 / 超时 / 无 acados
+           ▼                         ▼
+     臂命令 [5:19] ← MPC      LeadTracker.step(...)  （fallback_count++）
+           │                         │
+           └──────────┬──────────────┘
+                      ▼
+              夹爪 [19:21] 始终透传自 reference
+                      ▼
+              CommandSink.send(y_21)</div>
+
+    <h2 id="io">输入 / 输出</h2>
+    <div class="card">
+      <table class="kv">
+        <tr><th>q_hat</th><td>形状 <code>(14,)</code>。滞后回放得到的当前臂估计，不是原始测量。</td></tr>
+        <tr><th>reference</th><td>形状 <code>(21,)</code>。命令布局：腰/臂/夹爪；MPC 只动臂 <code>[5:19]</code>。</td></tr>
+        <tr><th>ref_ahead / ref_vel</th><td>降级到 Lead 时需要；成功 MPC 路径可忽略或用于暖启动。</td></tr>
+        <tr><th>now</th><td>单调时钟，供 lead EMA / 超时计量。</td></tr>
+        <tr><th>返回值</th><td>形状 <code>(21,)</code>。臂来自 MPC 或 Lead；夹爪 = <code>reference[19:21]</code>。</td></tr>
+        <tr><th>可观测状态</th><td><code>last_status</code>、<code>last_solve_ms</code>、<code>fallback_count</code>、<code>has_acados</code>。</td></tr>
+      </table>
+    </div>
+    <div class="note">
+      <strong>夹爪不进 MPC</strong>（与 design 一致）：按 lookahead 取参考即可，避免 14 维求解掺进开合自由度。
+    </div>
+
+    <h2 id="flow">处理流程</h2>
+    <div class="flow-wrap" role="img" aria-label="AcadosMpcTracker 处理流程图">
+      <svg class="flow" viewBox="0 0 860 920" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#8b93a7" />
+          </marker>
+        </defs>
+        <style>
+          .f text { font-family: "IBM Plex Mono", monospace; fill: #e8ecf4; }
+          .f .m { fill: #8b93a7; }
+          .f .box { fill: #1f2633; stroke: #2c3448; stroke-width: 1.2; }
+          .f .in { stroke: #5b9fd4; }
+          .f .ok { stroke: #3db89a; }
+          .f .bad { stroke: #d45d5d; }
+          .f .out { stroke: #f0c14a; }
+          .f .lead { stroke: #c9a86c; }
+          .f .arr { stroke: #8b93a7; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+          .f .t { font-size: 12.5px; }
+          .f .s { font-size: 10px; }
+        </style>
+        <g class="f">
+          <rect class="box in" x="230" y="16" width="400" height="58" rx="10" />
+          <text class="t" x="430" y="40" text-anchor="middle">① step() 入口</text>
+          <text class="s m" x="430" y="58" text-anchor="middle">校验 q_hat(14)、reference(21)；记录 now</text>
+          <path class="arr" d="M430 74 V100" />
+
+          <path class="box bad" d="M430 100 L520 140 L430 180 L340 140 Z" />
+          <text class="t" x="430" y="136" text-anchor="middle">有后端?</text>
+          <text class="s" x="430" y="152" text-anchor="middle">acados / 注入</text>
+
+          <path class="arr" d="M520 140 H610" />
+          <text class="s m" x="560" y="132">N</text>
+          <rect class="box lead" x="610" y="112" width="220" height="56" rx="8" />
+          <text class="s" x="720" y="136" text-anchor="middle">⑦ Lead 降级</text>
+          <text class="s m" x="720" y="152" text-anchor="middle">status=no_acados</text>
+
+          <path class="arr" d="M430 180 V210" />
+          <text class="s m" x="438" y="198">Y</text>
+
+          <rect class="box ok" x="200" y="210" width="460" height="70" rx="10" />
+          <text class="t" x="430" y="238" text-anchor="middle">② 组问题</text>
+          <text class="s m" x="430" y="258" text-anchor="middle">x0←q_hat；参考臂轨迹（当前 r + 可选 ahead）；盒约束 Δy/Δ²y</text>
+          <path class="arr" d="M430 280 V308" />
+
+          <rect class="box ok" x="200" y="308" width="460" height="64" rx="10" />
+          <text class="t" x="430" y="334" text-anchor="middle">③ 计时求解 _solve(...)</text>
+          <text class="s m" x="430" y="354" text-anchor="middle">SQP-RTI / 注入假求解器；返回 (u_arm, status, solve_ms)</text>
+          <path class="arr" d="M430 372 V400" />
+
+          <path class="box bad" d="M430 400 L545 445 L430 490 L315 445 Z" />
+          <text class="t" x="430" y="438" text-anchor="middle">成功且</text>
+          <text class="t" x="430" y="456" text-anchor="middle">ms ≤ budget?</text>
+
+          <path class="arr" d="M545 445 H610" />
+          <text class="s m" x="568" y="436">N</text>
+          <rect class="box lead" x="610" y="417" width="220" height="56" rx="8" />
+          <text class="s" x="720" y="441" text-anchor="middle">⑦ Lead 降级</text>
+          <text class="s m" x="720" y="457" text-anchor="middle">timeout / fail</text>
+
+          <path class="arr" d="M430 490 V520" />
+          <text class="s m" x="438" y="508">Y</text>
+
+          <rect class="box ok" x="200" y="520" width="460" height="64" rx="10" />
+          <text class="t" x="430" y="546" text-anchor="middle">④ 后处理：Δy 裁剪</text>
+          <text class="s m" x="430" y="566" text-anchor="middle">相对上一拍臂命令 |Δu| ≤ dy_max；更新 last_arm_command</text>
+          <path class="arr" d="M430 584 V612" />
+
+          <rect class="box out" x="200" y="612" width="460" height="70" rx="10" />
+          <text class="t" x="430" y="640" text-anchor="middle">⑤ 组装 21 维命令</text>
+          <text class="s m" x="430" y="660" text-anchor="middle">y[5:19]←u_arm；y[19:21]←reference 夹爪；腰等按 reference 策略</text>
+          <path class="arr" d="M430 682 V710" />
+
+          <rect class="box out" x="230" y="710" width="400" height="56" rx="10" />
+          <text class="t" x="430" y="734" text-anchor="middle">⑥ 返回 + 记元数据</text>
+          <text class="s m" x="430" y="752" text-anchor="middle">last_status=ok · last_solve_ms · fallback_count 不变</text>
+
+          <!-- merge fallback to output note -->
+          <path class="arr" d="M720 168 V800" />
+          <path class="arr" d="M720 473 V800" />
+          <rect class="box lead" x="560" y="800" width="270" height="70" rx="10" />
+          <text class="s" x="695" y="828" text-anchor="middle">降级出口</text>
+          <text class="s m" x="695" y="848" text-anchor="middle">Lead 输出 21 维；fallback_count++</text>
+
+          <text class="s m" x="24" y="900">色：蓝=入口 · 绿=MPC 主路径 · 红=判定 · 棕=Lead 降级 · 黄=成功出口</text>
+        </g>
+      </svg>
+    </div>
+
+    <ol>
+      <li><strong>校验</strong>：维数不对直接抛错（测试锁形状契约）。</li>
+      <li><strong>后端探测</strong>：无 acados 且无注入求解器 → 立刻 Lead。</li>
+      <li><strong>组问题</strong>：状态 <code>x₀ = q̂</code>，参考为当前臂目标（可带短 horizon）。</li>
+      <li><strong>限时求解</strong>：墙钟 &gt; <code>solve_budget_ms</code>（默认 8）视为 timeout。</li>
+      <li><strong>Δy 裁剪</strong>：成功解相对上一拍再夹一道，防单步跳变。</li>
+      <li><strong>拼命令</strong>：只写臂；夹爪透传。</li>
+      <li><strong>降级</strong>：任何失败路径调用内嵌 <code>LeadTracker</code>，计数可观测。</li>
+    </ol>
+
+    <h2 id="problem">MPC 问题轮廓（已接线）</h2>
+    <p>
+      与 realtime-vla-v2 <code>AcadosPlanner</code> 同构，见
+      <code>arm_mpc_acados.build_acados_ocp_solver</code>：
+    </p>
+    <div class="eq">状态 x = [q; y_prev; y_prev2] ∈ ℝ^{3·14}
+控制 u = y_cmd ∈ ℝ^{14}
+离散动力学（一阶滞后）：
+  q⁺ = a·q + (1−a)·y_cmd ,  a = exp(−dt/τ)
+代价 NONLINEAR_LS：跟踪 (q−r)、Δy、Δ²y 等（权重可配）
+约束 h：
+  |y − q|     ≤ τ·v_max     # soft-lead 式速率盒
+  |y − y⁻|    ≤ dy_max
+  |y − 2y⁻ + y⁻⁻| ≤ ddy_max
+  y ∈ [q_min, q_max]
+求解：nlp_solver_type = SQP_RTI，qp = PARTIAL_CONDENSING_HPIPM
+单拍预算 &lt; 8 ms；status≠0 或超时 → Lead</div>
+    <p>
+      安装：<code>pip install 'fastervla[mpc]'</code>（casadi + acados_template），
+      并按 acados 文档编译本机库、设置 <code>ACADOS_SOURCE_DIR</code>。
+      首次 <code>eager_build=True</code> 会导出 C 代码到临时目录并编译。
+      决策变量是<strong>空间命令</strong>，不是时间轴上的 <code>s=1/dt</code>。
+    </p>
+
+    <h2 id="fallback">降级策略</h2>
+    <table class="kv">
+      <tr><th>触发</th><td><code>last_status</code>（约定）</td></tr>
+      <tr><th>未安装 / 不可用</th><td><code>no_acados</code></td></tr>
+      <tr><th>求解超时</th><td><code>timeout</code></td></tr>
+      <tr><th>异常 / 数值失败</th><td><code>fail</code> / <code>fallback</code></td></tr>
+      <tr><th>测试强制</th><td><code>forced</code>（<code>force_fallback=True</code>）</td></tr>
+      <tr><th>成功</th><td><code>ok</code>；<code>fallback_count</code> 不增加</td></tr>
+    </table>
+    <p>
+      验收（分期退出条件）：1.4× 下跟踪 p95 优于纯 Lead；求解超时率 &lt; 1%。
+      G2 工控机是否装得动 acados，是 F4 前置实测项——装不动则长期走 Lead，模块仍须可构造、可降级。
+    </p>
+
+    <h2 id="config">关键配置</h2>
+    <div class="card">
+      <table class="kv">
+        <tr><th>horizon_n</th><td>默认 15</td></tr>
+        <tr><th>arm_dim</th><td>14（双臂）</td></tr>
+        <tr><th>dt_s</th><td>0.01</td></tr>
+        <tr><th>solve_budget_ms</th><td>8.0</td></tr>
+        <tr><th>dy_max_rad</th><td>单拍臂增量上限（测试默认 0.05）</td></tr>
+        <tr><th>ddy_max_rad</th><td>二阶平滑盒（测试默认 0.5）</td></tr>
+        <tr><th>fallback</th><td>目前仅 <code>"lead"</code></td></tr>
+      </table>
+    </div>
+
+    <div class="note">
+      <strong>一句话</strong>：AcadosMpcTracker = 「100 Hz 上对 14 维臂做限时约束跟踪；不行就 Lead」。
+      它不负责推理、不负责重定时、不负责夹爪；只把 <code>q̂</code> 与参考收成可下发的 21 维命令。
+    </div>
+
+    <footer>
+      docs/acados-mpc-tracker.html · 对照 tests/deploy/test_acados_mpc_tracker.py
+      · 相关：docs/retime-qp-flow.html（L2）· docs/plan-buffer.html（参考来源）
+    </footer>
+  </div>
+</body>
+</html>

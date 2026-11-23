@@ -155,7 +155,7 @@ loop:
 - `PassthroughTracker`：参考直接下发（对应老栈无补偿）。
 - `LeadTracker`：老栈 soft lead 行为逐项对齐（`tau/gain/max_lead/lead_smooth_tau/hold_during_blend`），作为 1.0× 持平基线。
 - `LagStateEstimator`：design §5.2；锚点取约 50 ms 前测量，用 \(x_{k+1}=a x_k+(1-a)y_k\) 回放已下发命令。
-- `AcadosMpcTracker`：design §5.2 / 文章 2.3；N≈15、14 维臂；每拍预算 < 8 ms（100 Hz 环），超时 / 失败降级到 `LeadTracker` 并计数。G2 工控机能否跑 acados 先做 F4 前置实测。
+- `AcadosMpcTracker`：design §5.2 / 文章 2.3；默认 **N=8**、14 维臂、cython 封装；超时 / 失败降级到 `LeadTracker` 并计数。g2s shadow 实测约 **99 Hz**、超时率 < 1%。安装见 `scripts/install_acados_g2s.sh`。流程见 **[acados-mpc-tracker.html](acados-mpc-tracker.html)**。
 
 ### 4.6 Contact（L4）
 
@@ -176,7 +176,7 @@ loop:
 | F1 | `agibot_g2.py`（读 / 发 / 图像）+ `OpenPiWebsocketBackend`；`shadow` 模式 | 在 g2s 上 shadow 跑 5 min：状态读数、图像、推理返回与老栈同一时刻对比一致；零下发 |
 | F2 | L1：`PlanBuffer` + `InferenceLoop` + RTC INPAINT + `LeadTracker`，κ=1.0，Uniform 时间轴 | 真机 execute 1.0×：|r−meas| p95、空缓冲、成功率与老栈 soft（`qHmSg38e`）同档 |
 | F3 | L2：`TimeAxisQP`，κ=1.2 / 1.4（**单测已完成**；`run --retimer qp`） | 对标老栈 `vSLxMWJg`（1.2）、`tl_qp_1p4_5_5`；空缓冲与早到闲置均不高于老栈 |
-| F4 | L3：`LagStateEstimator` + `AcadosMpcTracker` | 1.4× 下跟踪 p95 优于 `LeadTracker`；求解超时率 < 1% |
+| F4 | L3：`LagStateEstimator` + `AcadosMpcTracker`（**单测已完成**；acados SQP-RTI 已接线，缺依赖时降级 Lead） | 1.4× 下跟踪 p95 优于 `LeadTracker`；求解超时率 < 1% |
 | F5 | L4：`ContactMonitor`；尝试 κ=1.5 | 抓取成功率不低于 F3；交接 jerk 不恶化 |
 
 ## 6. 测试要点（tests/deploy）

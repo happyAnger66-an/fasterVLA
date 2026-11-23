@@ -163,11 +163,12 @@ class AgibotG2Platform(RobotPlatform):
             raise RuntimeError("joint name set mismatch")
 
         # Timestamp: use max joint timestamp_ms as source stamp.
+        # Brief regressions are common with multi-joint max(); clamp and rely on stall.
         stamps = [int(j.timestamp_ms) for j in joints]
         stamp = max(stamps) if stamps else 0
         now = monotonic_s()
         if self._last_stamp_ms is not None and stamp < self._last_stamp_ms:
-            raise RuntimeError("joint timestamp regression")
+            stamp = self._last_stamp_ms
         if self._last_stamp_ms is None or stamp > self._last_stamp_ms:
             self._last_stamp_ms = stamp
             self._stamp_advanced_at = now

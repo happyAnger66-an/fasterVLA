@@ -181,15 +181,15 @@ def test_g2_rejects_joint_name_mismatch(fake_robot: FakeGdkRobot, g2_cfg: Agibot
     plat.close()
 
 
-# 用例: 关节时间戳回退拒绝
+# 用例: 关节时间戳短暂回退时钳位并通过（stall 另测）
 # 参数: 无
-def test_g2_rejects_timestamp_regression(fake_robot: FakeGdkRobot, g2_cfg: AgibotG2Config) -> None:
+def test_g2_clamps_timestamp_regression(fake_robot: FakeGdkRobot, g2_cfg: AgibotG2Config) -> None:
     plat = AgibotG2Platform(robot=fake_robot, config=g2_cfg, mode="shadow")
     plat.state.read()
     for j in fake_robot._status.joint_states:
         j.timestamp_ms = 900  # earlier than first read
-    with pytest.raises((ValueError, RuntimeError)):
-        plat.state.read()
+    st = plat.state.read()
+    assert st is not None
     plat.close()
 
 

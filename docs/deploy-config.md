@@ -279,7 +279,8 @@ retimer:
 |---|---|
 | `fastervla-deploy run --config xxx.yaml` | **未实现**；今日用 CLI |
 | `safety` 在线按 r2r P99 自动降 `kappa` | 未实现（方案有，`safety.py` 缺） |
-| Contact / MPC（F4+） | 未到分期 |
+| Contact（F5） | 未实现 |
+| acados 系统库 | `pip install 'fastervla[mpc]'` 只装 Python 包；还需本机编译/安装 [acados](https://docs.acados.org) 并设置 `ACADOS_SOURCE_DIR`。未装齐时 `AcadosMpcTracker` 自动降级 Lead |
 | 训练配方 `configs/training/*.yaml` | 另一套，见训练 README / recipe |
 
 有 YAML 加载需求时：用 `core.config.load_dataclass_yaml` 分段加载，或新增顶层 `DeployConfig` dataclass 一次载入。

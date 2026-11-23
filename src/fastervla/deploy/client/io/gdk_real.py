@@ -67,6 +67,26 @@ class GdkEnvConfig:
     ignore_right_gripper_health: bool = True
 
 
+def apply_acados_process_env(
+    acados_root: str = "/home/agi/deps/acados",
+) -> None:
+    """If a local acados build exists, export paths needed by ``acados_template``."""
+    root = Path(acados_root)
+    lib = root / "lib"
+    if not (lib / "libacados.so").is_file() and not any(lib.glob("libacados.so*")):
+        return
+    os.environ.setdefault("ACADOS_SOURCE_DIR", str(root))
+    lib_s = str(lib)
+    cur = os.environ.get("LD_LIBRARY_PATH", "")
+    if lib_s not in cur.split(":"):
+        os.environ["LD_LIBRARY_PATH"] = f"{lib_s}:{cur}" if cur else lib_s
+    # pip --user puts ``cython`` here; needed to build the cython OCP wrapper.
+    local_bin = str(Path.home() / ".local" / "bin")
+    path = os.environ.get("PATH", "")
+    if local_bin not in path.split(":"):
+        os.environ["PATH"] = f"{local_bin}:{path}" if path else local_bin
+
+
 def apply_gdk_process_env(cfg: GdkEnvConfig) -> None:
     """Set GDK env vars. Caller should re-exec once so LD_LIBRARY_PATH is visible to dlopen."""
     root = Path(cfg.sdk_root)
@@ -80,6 +100,7 @@ def apply_gdk_process_env(cfg: GdkEnvConfig) -> None:
         f"/home/agi/app/lib:/home/agi/app/lib/hal:{lib}:{dep}:"
         + os.environ.get("LD_LIBRARY_PATH", "")
     )
+    apply_acados_process_env()
     conf = root / "config/app_conf.yml"
     if conf.is_file():
         os.environ["APP_CONF_PATH"] = str(conf)

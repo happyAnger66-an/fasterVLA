@@ -9,9 +9,10 @@
   - **F0（已完成）**：`core/**`、`deploy/backends/mock.py`、`deploy/client/io/{interfaces,layout,mock_sim}.py`、`deploy/client/loops.py`（同步 1×）、对应 tests。
   - **F1（已完成）**：`agibot_g2` / `gdk_real` / `openpi_ws` / `runtime` / `deploy.cli shadow`；g2s 真机 shadow 5 min 已跑通（右夹爪健康暂跳过）。
   - **F2（已完成单测）**：`plan_buffer.py`、`inference_loop.py`、`postprocess/retime.UniformRetimer`、`tracker/lead.py`；对应 tests 全绿。真机 execute 1.0× 对标仍待 g2s。
-  - **F3（已完成单测）**：`postprocess/retime.TimeAxisQP`（+ `box_qp` / `rate_hessian`）；`tests/deploy/test_time_axis_qp.py` 全绿；`run --retimer qp` 可选用。真机 κ=1.2/1.4 对标仍待 g2s。勿提前写 MPC / Contact（F4+）。
+  - **F3（已完成单测）**：`postprocess/retime.TimeAxisQP`（+ `box_qp` / `rate_hessian`）；`tests/deploy/test_time_axis_qp.py` 全绿；`run --retimer qp` 可选用。真机 κ=1.2/1.4 对标仍待 g2s。
   - **Trace + 离线分析（本仓闭环）**：`recorder.py`；`deploy/analysis/`（hf3/hf7、跟踪、r2r，**不依赖** `tools/jitter` / h7_deploy）；`fastervla-deploy shadow|run|analyze`。见 [docs/trace-design.md](docs/trace-design.md)。
-  - **F4（下期·先测后码）**：`LagStateEstimator` + `AcadosMpcTracker`；打开范围以 `deploy-g2-plan` 为准。未到该期前不要实现。
+  - **F4（已完成单测 + g2s shadow）**：`LagStateEstimator`；`AcadosMpcTracker` + `arm_mpc_acados`（SQP-RTI；默认 N=8 + cython，约 99 Hz；缺 acados → Lead）。g2s 安装见 `scripts/install_acados_g2s.sh`。流程见 [docs/acados-mpc-tracker.html](docs/acados-mpc-tracker.html)。勿提前写 Contact（F5）。
+  - **F5（下期·先测后码）**：`ContactMonitor`；打开范围以 `deploy-g2-plan` 为准。真机 execute / κ=1.2–1.4 对标仍待 g2s。
 - **禁止改动**：`r-infra/g2_tools/h7_deploy/**`；5090 上已有 openpi websocket 推理服务（只写本仓 client / mock backend）。
 - **不 vendor openpi / 老栈**：训练走 `openpi_jax_backend`；部署算法按新接口重写，可对照老栈行为单测。
 
@@ -44,7 +45,7 @@ TrainRecipe YAML
 # 训练单测（无 GPU）
 PYTHONPATH=src python -m pytest tests/training -m "not openpi"
 
-# F0–F3 部署 / core 单测（应全绿；osqp 未装时相关用例 skip）
+# F0–F4 部署 / core 单测（应全绿；osqp 未装时相关用例 skip）
 PYTHONPATH=src python -m pytest tests/core tests/deploy -q
 
 # dry-run

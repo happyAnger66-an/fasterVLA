@@ -105,6 +105,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable optional inference-buffer wall-clock floor in TimeAxisQP",
     )
+    run.add_argument(
+        "--tracker",
+        choices=("none", "lead", "mpc"),
+        default="lead",
+        help="L3 tracker: passthrough / LeadTracker / AcadosMpcTracker",
+    )
     run.add_argument("--t-infer-min-s", type=float, default=0.0)
     run.add_argument("--t-switch-min-s", type=float, default=0.0)
 
@@ -409,6 +415,8 @@ def _run_loop(args: argparse.Namespace) -> int:
             t_infer_min_s=float(args.t_infer_min_s),
             t_switch_min_s=float(args.t_switch_min_s),
             rtc_mode="INPAINT",
+            tracker=str(args.tracker),
+            use_lead_tracker=str(args.tracker) != "none",
         )
         print(
             json.dumps(
@@ -418,6 +426,7 @@ def _run_loop(args: argparse.Namespace) -> int:
                     "robot_aid": robot.aid,
                     "kappa": args.kappa,
                     "retimer": args.retimer,
+                    "tracker": args.tracker,
                     "qp_buffer_window": bool(getattr(args, "qp_buffer_window", False)),
                     "duration_s": args.duration_s,
                     "trace_dir": str(run_dir) if run_dir else None,
@@ -438,16 +447,27 @@ def _run_loop(args: argparse.Namespace) -> int:
         # InferenceLoop.close()'s recorder itself; avoid double-close in finally.
         summary = loop.run()
         recorder = None  # already closed inside loop
+        mpc_info: dict = {}
+        if getattr(loop, "_mpc", None) is not None:
+            mpc = loop._mpc
+            mpc_info = {
+                "has_acados": bool(mpc.has_acados),
+                "fallback_count": int(mpc.fallback_count),
+                "last_status": mpc.last_status,
+                "build_error": getattr(mpc, "_build_error", None),
+            }
         print(
             json.dumps(
                 {
                     "run_done": True,
                     "mode": args.mode,
+                    "tracker": args.tracker,
                     "control_steps": summary.control_steps,
                     "infer_calls": summary.infer_calls,
                     "empty_buffer_ticks": summary.empty_buffer_ticks,
                     "starved_events": summary.starved_events,
                     "extras": summary.extras,
+                    "mpc": mpc_info,
                     "periodic_flushes": flusher.flush_count if flusher else 0,
                 },
                 ensure_ascii=False,

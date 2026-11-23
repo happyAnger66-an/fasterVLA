@@ -12,15 +12,19 @@ import numpy as np
 
 from fastervla.core.types import Chunk, Observation, Prefix, TimedChunk
 from fastervla.deploy.client.io.interfaces import RobotPlatform
-from fastervla.deploy.client.io.layout import COMMAND_INDICES, LayoutMapper
+from fastervla.deploy.client.estimator import LagStateEstimator, LagStateEstimatorConfig
+from fastervla.deploy.client.io.layout import ARM_POLICY_SLICE, COMMAND_INDICES, LayoutMapper
 from fastervla.deploy.client.plan_buffer import PlanBuffer
 from fastervla.deploy.client.recorder import (
     STAGE_BUFFER_EMPTY_HOLD,
     STAGE_STEP,
+    TRACKER_FALLBACK,
     TRACKER_LEAD,
+    TRACKER_MPC,
     TRACKER_PASSTHROUGH,
     TraceRecorder,
 )
+from fastervla.deploy.client.tracker.acados_mpc import AcadosMpcTracker
 from fastervla.deploy.client.tracker.lead import LeadTracker, LeadTrackerConfig
 from fastervla.deploy.postprocess.retime import TimeAxisQP, UniformRetimer
 
@@ -54,6 +58,7 @@ class InferenceLoopConfig:
     action_dim: int = 24
     latency_window: int = 32
     use_lead_tracker: bool = True
+    tracker: str = "lead"  # none | lead | mpc
     track_warn_threshold_rad: float = 0.10
 
     def __post_init__(self) -> None:
@@ -63,6 +68,8 @@ class InferenceLoopConfig:
             )
         if self.control_hz <= 0 or self.policy_fps <= 0:
             raise ValueError("control_hz and policy_fps must be > 0")
+        if self.tracker not in ("none", "lead", "mpc"):
+            raise ValueError(f"unknown tracker {self.tracker!r}")
 
 
 @dataclass
@@ -129,6 +136,8 @@ class InferenceLoop:
         config: InferenceLoopConfig | None = None,
         recorder: TraceRecorder | None = None,
         lead_tracker: LeadTracker | None = None,
+        mpc_tracker: AcadosMpcTracker | None = None,
+        lag_estimator: LagStateEstimator | None = None,
     ) -> None:
         self.platform = platform
         self.backend = backend
@@ -139,12 +148,33 @@ class InferenceLoop:
         self._mapper = LayoutMapper()
         self._latency_s: deque[float] = deque(maxlen=self.config.latency_window)
         self._r2r_ms: deque[float] = deque(maxlen=self.config.latency_window)
+        self._mpc = mpc_tracker
+        self._estimator = lag_estimator
+        tracker = self.config.tracker
+        if self._mpc is not None:
+            tracker = "mpc"
         if lead_tracker is not None:
             self._lead = lead_tracker
-        elif self.config.use_lead_tracker:
+        elif tracker == "lead" or (tracker == "mpc" and self._mpc is None):
+            self._lead = LeadTracker(LeadTrackerConfig())
+        elif self.config.use_lead_tracker and tracker != "none":
             self._lead = LeadTracker(LeadTrackerConfig())
         else:
             self._lead = None
+        if tracker == "mpc" and self._mpc is None:
+            # Construct default MPC (may fall back to Lead if acados missing).
+            from fastervla.deploy.client.tracker.acados_mpc import (
+                AcadosMpcTrackerConfig,
+            )
+
+            self._mpc = AcadosMpcTracker(
+                AcadosMpcTrackerConfig(eager_build=True),
+                lead=self._lead or LeadTracker(LeadTrackerConfig()),
+            )
+        if tracker == "mpc" and self._estimator is None:
+            self._estimator = LagStateEstimator(
+                LagStateEstimatorConfig(dim=14, dt_s=1.0 / self.config.control_hz)
+            )
 
     def _retime_chunk(self, chunk: Chunk, *, state: np.ndarray) -> TimedChunk:
         retimer = self.retimer
@@ -179,6 +209,8 @@ class InferenceLoop:
                 kappa=cfg.kappa,
                 rtc_mode=cfg.rtc_mode,
                 use_lead_tracker=bool(self._lead is not None),
+                tracker=cfg.tracker,
+                mpc_has_acados=bool(self._mpc.has_acados) if self._mpc else False,
                 horizon=cfg.horizon,
             )
             self.recorder.track_warn_threshold_rad = float(cfg.track_warn_threshold_rad)
@@ -366,17 +398,22 @@ class InferenceLoop:
             elif ok:
                 last_switch_mono["t"] = t_accept
 
+        # Cap infer rate so the control thread keeps the GIL for SQP-RTI.
+        infer_period_s = max(1.0 / float(cfg.policy_fps), float(cfg.t_infer_min_s))
+
         def infer_thread() -> None:
+            next_infer = time.monotonic()
             while not stop.is_set():
+                delay = next_infer - time.monotonic()
+                if delay > 0.0 and stop.wait(delay):
+                    break
                 try:
                     _infer_once()
                 except Exception:
                     if stop.is_set():
                         break
                     time.sleep(0.01)
-                    continue
-                if stop.wait(0.001):
-                    break
+                next_infer = time.monotonic() + infer_period_s
 
         th = threading.Thread(target=infer_thread, name="fastervla-infer", daemon=True)
         th.start()
@@ -408,7 +445,36 @@ class InferenceLoop:
                 )
                 reference21 = np.asarray(ref_cmd.q_des, dtype=np.float64)
                 tracker_status = TRACKER_PASSTHROUGH
-                if self._lead is not None and not empty:
+                st_now = self.platform.state.read()
+                measured = np.asarray(st_now.q, dtype=np.float64)
+                if self._mpc is not None and self._estimator is not None and not empty:
+                    lo, hi = ARM_POLICY_SLICE
+                    arm_meas = measured[lo:hi]
+                    self._estimator.push_observation(t=t_tick0, q=arm_meas)
+                    q_hat = self._estimator.estimate(t_now=t_tick0)
+                    wp = self.plan_buffer.waypoints
+                    step_dt_arr = self.plan_buffer.step_dt
+                    arm_ahead, arm_vel = _arm_ref_vel(
+                        wp, step_dt_arr, float(self.plan_buffer.progress)
+                    )
+                    command21 = self._mpc.step(
+                        q_hat=q_hat,
+                        reference=reference21,
+                        ref_ahead=arm_ahead,
+                        ref_vel=arm_vel,
+                        now=t_tick0,
+                        blending=False,
+                    )
+                    self._estimator.push_command(t=t_tick0, y=command21[5:19])
+                    if self._mpc.last_status == "ok":
+                        tracker_status = TRACKER_MPC
+                    else:
+                        tracker_status = TRACKER_FALLBACK
+                        summary.extras["mpc_fallback_count"] = int(
+                            self._mpc.fallback_count
+                        )
+                        summary.extras["mpc_last_status"] = self._mpc.last_status
+                elif self._lead is not None and not empty:
                     wp = self.plan_buffer.waypoints
                     step_dt_arr = self.plan_buffer.step_dt
                     arm_ahead, arm_vel = _arm_ref_vel(
@@ -425,9 +491,7 @@ class InferenceLoop:
                 else:
                     command21 = reference21.copy()
 
-                send_cmd = self._mapper.from_policy(
-                    q24, waist_baseline=waist, timestamp=time.monotonic()
-                )
+                send_cmd = ref_cmd
                 send_cmd.q_des = command21.copy()
                 self.platform.command.send(send_cmd)
                 summary.control_steps += 1
@@ -435,8 +499,6 @@ class InferenceLoop:
                     shared["last_command21"] = command21.copy()
 
                 if self.recorder is not None:
-                    st_now = self.platform.state.read()
-                    measured = np.asarray(st_now.q, dtype=np.float64)
                     servo_ms = (time.monotonic() - t_tick0) * 1000.0
                     # |cmd − meas| on shared command dims.
                     meas21 = measured[COMMAND_INDICES]
