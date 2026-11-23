@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PlanBuffer · 模型步尺子</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #0f1412;
+      --bg1: #16201c;
+      --bg2: #1e2c26;
+      --ink: #e8f0ea;
+      --muted: #8fa396;
+      --line: #2d4038;
+      --played: #3d5c4e;
+      --progress: #f0c14a;
+      --prefix: #e0893c;
+      --fresh: #3db89a;
+      --drop: #d45d5d;
+      --ctrl: #7eb8ff;
+      --infer: #c9a0ff;
+      --card: rgba(22, 32, 28, 0.92);
+      --radius: 10px;
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --serif: "IBM Plex Serif", Georgia, serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1a332a 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #243040 0%, transparent 50%),
+        var(--bg0);
+      line-height: 1.55;
+      font-size: 16px;
+    }
+
+    .wrap { max-width: 920px; margin: 0 auto; padding: 48px 20px 96px; }
+
+    header.hero {
+      margin-bottom: 48px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fresh);
+      margin: 0 0 12px;
+    }
+    h1 {
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      line-height: 1.2;
+      margin: 0 0 14px;
+      letter-spacing: -0.02em;
+    }
+    .lede {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 38em;
+      margin: 0;
+    }
+
+    h2 {
+      font-family: var(--serif);
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin: 48px 0 12px;
+    }
+    h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin: 0 0 8px;
+      color: var(--ink);
+    }
+    p { margin: 0 0 12px; color: var(--muted); }
+    p strong { color: var(--ink); font-weight: 500; }
+    code, .mono {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      color: var(--progress);
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px 18px 16px;
+      margin: 16px 0 24px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      margin: 0 0 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .swatch {
+      width: 12px; height: 12px; border-radius: 3px;
+      display: inline-block;
+    }
+    .swatch.played { background: var(--played); }
+    .swatch.progress { background: var(--progress); }
+    .swatch.prefix { background: var(--prefix); }
+    .swatch.fresh { background: var(--fresh); }
+    .swatch.drop { background: var(--drop); }
+
+    /* ---- timeline rail ---- */
+    .rail-wrap {
+      position: relative;
+      padding: 28px 4px 8px;
+      overflow-x: auto;
+    }
+    .rail {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(28px, 1fr);
+      gap: 3px;
+      position: relative;
+      min-width: 420px;
+      height: 36px;
+      align-items: stretch;
+    }
+    .cell {
+      background: var(--bg2);
+      border-radius: 4px;
+      position: relative;
+      transition: background 0.35s ease, transform 0.35s ease, opacity 0.35s ease;
+      border: 1px solid transparent;
+    }
+    .cell.played { background: var(--played); }
+    .cell.prefix {
+      background: color-mix(in srgb, var(--prefix) 55%, var(--bg2));
+      border-color: var(--prefix);
+    }
+    .cell.fresh {
+      background: color-mix(in srgb, var(--fresh) 45%, var(--bg2));
+      border-color: var(--fresh);
+    }
+    .cell.drop {
+      background: color-mix(in srgb, var(--drop) 35%, var(--bg2));
+      opacity: 0.45;
+    }
+    .cell.drop::after {
+      content: "";
+      position: absolute;
+      inset: 45% 10%;
+      height: 2px;
+      background: var(--drop);
+      transform: rotate(-18deg);
+    }
+    .cell .idx {
+      position: absolute;
+      bottom: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    .cursor {
+      position: absolute;
+      top: 8px;
+      width: 2px;
+      height: 56px;
+      background: var(--progress);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--progress) 40%, transparent);
+      transform: translateX(-1px);
+      transition: left 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 3;
+      pointer-events: none;
+    }
+    .cursor::before {
+      content: attr(data-label);
+      position: absolute;
+      top: -22px;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--progress);
+      font-weight: 500;
+    }
+    .cursor::after {
+      content: "";
+      position: absolute;
+      bottom: -4px;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: var(--progress);
+    }
+
+    .bracket {
+      position: absolute;
+      top: 4px;
+      height: 44px;
+      border: 1.5px dashed var(--prefix);
+      border-radius: 6px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease, left 0.4s ease, width 0.4s ease;
+      z-index: 2;
+    }
+    .bracket.on { opacity: 1; }
+    .bracket .tag {
+      position: absolute;
+      top: -18px;
+      left: 0;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--prefix);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+      align-items: center;
+    }
+    button {
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--line);
+      background: var(--bg2);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    button:hover { background: #263830; border-color: #3d5548; }
+    button.primary {
+      background: color-mix(in srgb, var(--fresh) 22%, var(--bg2));
+      border-color: color-mix(in srgb, var(--fresh) 45%, var(--line));
+      color: #b8f0dc;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .status {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    /* ---- two-thread diagram ---- */
+    .threads {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    @media (max-width: 640px) {
+      .threads { grid-template-columns: 1fr; }
+    }
+    .thread {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: var(--bg1);
+    }
+    .thread.ctrl { border-color: color-mix(in srgb, var(--ctrl) 35%, var(--line)); }
+    .thread.inf { border-color: color-mix(in srgb, var(--infer) 35%, var(--line)); }
+    .thread h3 { display: flex; align-items: center; gap: 8px; }
+    .pill {
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid;
+    }
+    .pill.ctrl { color: var(--ctrl); border-color: var(--ctrl); }
+    .pill.inf { color: var(--infer); border-color: var(--infer); }
+    .thread ul {
+      margin: 8px 0 0;
+      padding-left: 1.1em;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .thread li { margin: 4px 0; }
+    .thread code { color: inherit; }
+
+    /* ---- storyboard steps ---- */
+    .story {
+      display: grid;
+      gap: 10px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      transition: border-color 0.25s ease, background 0.25s ease;
+    }
+    .step.active {
+      border-color: color-mix(in srgb, var(--fresh) 40%, var(--line));
+      background: color-mix(in srgb, var(--fresh) 8%, transparent);
+    }
+    .step-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--bg2);
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .step.active .step-num {
+      border-color: var(--fresh);
+      color: var(--fresh);
+    }
+    .step p { margin: 0; font-size: 0.92rem; }
+
+    /* ---- formula strip ---- */
+    .formula {
+      font-family: var(--mono);
+      font-size: 13px;
+      background: var(--bg0);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--ink);
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .formula .c-prog { color: var(--progress); }
+    .formula .c-pre { color: var(--prefix); }
+    .formula .c-fr { color: var(--fresh); }
+    .formula .c-dr { color: var(--drop); }
+
+    /* ---- pulse dots for live loop ---- */
+    .live-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 10px;
+      min-height: 28px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--line);
+      transition: background 0.2s, transform 0.2s;
+    }
+    .dot.on-ctrl { background: var(--ctrl); transform: scale(1.35); }
+    .dot.on-inf { background: var(--infer); transform: scale(1.35); }
+
+    footer {
+      margin-top: 56px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+    }
+    footer a { color: var(--fresh); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cell, .cursor, .bracket, .step, .dot { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <p class="eyebrow">fasterVLA · F2 / L1</p>
+      <h1>PlanBuffer：模型步是唯一尺子</h1>
+      <p class="lede">
+        控制环与推理环共享同一条计划。进度用<strong style="color:var(--ink)">小数模型步</strong>计量，
+        而不是假设「每帧固定 1/30 秒」。下面用一条时间轴动画说明
+        <code>advance</code> / <code>prefix(d̂)</code> / <code>merge</code> / 晚到丢弃。
+      </p>
+    </header>
+
+    <section>
+      <h2>1. 存什么</h2>
+      <p>
+        当前计划 = <code>waypoints[H, D]</code> + <code>step_dt[H]</code>（每步墙钟时长，来自 Retimer）
+        + <code>origin_monotonic</code>。示意 H=12（真机常见 H=30）。
+      </p>
+      <div class="card">
+        <div class="legend">
+          <span><i class="swatch played"></i> 已走过</span>
+          <span><i class="swatch progress"></i> progress 游标</span>
+          <span><i class="swatch prefix"></i> prefix / 冻结前缀</span>
+          <span><i class="swatch fresh"></i> 新 chunk 接入</span>
+          <span><i class="swatch drop"></i> 晚到丢弃</span>
+        </div>
+        <div class="rail-wrap" id="main-rail-wrap">
+          <div class="bracket" id="bracket"><span class="tag">prefix(d̂)</span></div>
+          <div class="cursor" id="cursor" data-label="progress=0.0" style="left:0%"></div>
+          <div class="rail" id="rail" aria-label="模型步时间轴"></div>
+        </div>
+        <div class="controls">
+          <button type="button" class="primary" id="btn-play">播放完整故事</button>
+          <button type="button" id="btn-reset">重置</button>
+          <button type="button" id="btn-advance">只看 advance</button>
+          <button type="button" id="btn-prefix">只看 prefix</button>
+          <button type="button" id="btn-merge">只看 merge</button>
+          <button type="button" id="btn-late">只看晚到丢弃</button>
+          <span class="status" id="status">待命</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 谁调用什么（一把锁）</h2>
+      <div class="threads">
+        <div class="thread ctrl">
+          <h3><span class="pill ctrl">控制环 · 100 Hz</span></h3>
+          <ul>
+            <li><code>advance(dt_real, alpha)</code> — 沿 step_dt 推 progress</li>
+            <li><code>reference(t_now, …)</code> — 插值给 tracker 下发</li>
+            <li>接触时 <code>alpha=0</code>，进度冻结</li>
+          </ul>
+        </div>
+        <div class="thread inf">
+          <h3><span class="pill inf">推理线程</span></h3>
+          <ul>
+            <li><code>prefix(d̂)</code> — 开推前冻前缀给 RTC</li>
+            <li><code>merge(timed, anchor)</code> — 结果到达后接入</li>
+            <li>比当前计划旧的结果 → 丢弃</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card">
+        <h3>墙上时钟 vs 模型步</h3>
+        <p style="margin-bottom:8px">
+          控制环每拍贡献真实时间 <code>dt_real</code>。要换算成模型步，必须在当前
+          <code>step_dt[]</code> 上累加——加速后各步时长可以不均匀，不能再用常数 1/policy_fps。
+        </p>
+        <div class="live-row" id="tick-dots" aria-hidden="true"></div>
+        <p style="margin:8px 0 0;font-size:12px;font-family:var(--mono)">
+          蓝点 = 控制拍 · 紫点 = 推理事件（示意）
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. 故事板：一次推理交接</h2>
+      <div class="card story" id="story">
+        <div class="step" data-step="0">
+          <div class="step-num">0</div>
+          <div>
+            <h3>起点</h3>
+            <p>计划已就位，<code class="c-prog">progress</code> 在某个模型步上。控制环持续 <code>advance</code>。</p>
+          </div>
+        </div>
+        <div class="step" data-step="1">
+          <div class="step-num">1</div>
+          <div>
+            <h3>advance</h3>
+            <p>把墙钟 <code>dt_real</code> 换成模型步增量：在 <code>step_dt</code> 上「走完」当前步剩余时间，再进入下一步。</p>
+          </div>
+        </div>
+        <div class="step" data-step="2">
+          <div class="step-num">2</div>
+          <div>
+            <h3>估 d̂ → prefix</h3>
+            <p>
+              用近期推理延迟 P95（+ margin）估墙钟 <code>L̂</code>，再沿 step_dt 从当前 progress
+              累加到覆盖 <code>L̂</code> 的模型步数 → <strong>d̂</strong>（上取整）。
+              <code>prefix(d̂)</code> 取出这段前缀交给 RTC：告诉模型「你回来时机器人大概走到这」。
+            </p>
+          </div>
+        </div>
+        <div class="step" data-step="3">
+          <div class="step-num">3</div>
+          <div>
+            <h3>推理进行中</h3>
+            <p>控制环<strong>不停</strong>：继续 advance。真实走过的步数可能 &lt; 或 &gt; d̂。</p>
+          </div>
+        </div>
+        <div class="step" data-step="4">
+          <div class="step-num">4</div>
+          <div>
+            <h3>merge</h3>
+            <p>
+              结果到达时用<strong>实际</strong> progress 算延迟 <code>d</code>，从新 chunk 的第
+              <code>d</code> 步接到当前计划。记录 <code>d̂ − d</code> 便于调参。
+            </p>
+          </div>
+        </div>
+        <div class="step" data-step="5">
+          <div class="step-num">5</div>
+          <div>
+            <h3>晚到丢弃</h3>
+            <p>
+              若结果对应的计划世代已经过期（比当前缓冲区更旧），整段
+              <strong>丢弃</strong>，绝不回写——避免过期动作覆盖已经更前面的计划。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="formula">
+        <div>progress' = advance(progress, dt_real · α)   <span style="color:var(--muted)">// α=0 冻结</span></div>
+        <div>d̂ = ⌈ wall_to_model_steps(progress, L̂, step_dt) ⌉</div>
+        <div>prefix = plan[progress … progress + d̂]</div>
+        <div>d = model_steps_elapsed(anchor → now)     <span style="color:var(--muted)">// 实际延迟</span></div>
+        <div>plan ← splice(new_chunk from index d)     <span style="color:var(--muted)">// 或 discard if stale</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. 为什么比「固定帧配额」好</h2>
+      <p>
+        老栈常用固定 <code>prefix + buffer</code> 帧（如 4+4）。加速后容易出现：
+        结果早到却要等交接点，或 buffer 掏空后空转等推理。
+      </p>
+      <p>
+        PlanBuffer 用 <strong>d̂ / 实际 d</strong> 动态对齐：早到就按实际进度接入，
+        晚到就丢掉，不再为「凑满配额」停顿。旋钮变成
+        <code>T_infer_min</code>、<code>T_switch_min</code>、<code>latency_margin_ms</code>。
+      </p>
+    </section>
+
+    <footer>
+      依据 <a href="deploy-g2-plan.md">docs/deploy-g2-plan.md</a> §4.1–4.2。
+      实现落在 F2：<code>plan_buffer.py</code> + <code>InferenceLoop</code>。
+      本地打开本文件即可播放动画（无需构建）。
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      const H = 12;
+      const rail = document.getElementById("rail");
+      const cursor = document.getElementById("cursor");
+      const bracket = document.getElementById("bracket");
+      const status = document.getElementById("status");
+      const storySteps = [...document.querySelectorAll("#story .step")];
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // Illustrative non-uniform step_dt (seconds) — longer mid steps.
+      const stepDt = Array.from({ length: H }, (_, i) =>
+        0.028 + 0.012 * Math.sin((i / H) * Math.PI)
+      );
+
+      let cells = [];
+      let progress = 0;
+      let playing = false;
+      let timers = [];
+
+      function clearTimers() {
+        timers.forEach(clearTimeout);
+        timers = [];
+      }
+
+      function buildRail() {
+        rail.innerHTML = "";
+        cells = [];
+        for (let i = 0; i < H; i++) {
+          const c = document.createElement("div");
+          c.className = "cell";
+          c.setAttribute("role", "presentation");
+          const idx = document.createElement("span");
+          idx.className = "idx";
+          idx.textContent = String(i);
+          c.appendChild(idx);
+          rail.appendChild(c);
+          cells.push(c);
+        }
+      }
+
+      function cellLeftPct(index) {
+        // index can be fractional for cursor
+        const clamped = Math.max(0, Math.min(H, index));
+        return (clamped / H) * 100;
+      }
+
+      function setProgress(p, label) {
+        progress = Math.max(0, Math.min(H, p));
+        cursor.style.left = cellLeftPct(progress) + "%";
+        cursor.dataset.label =
+          label || ("progress=" + progress.toFixed(1));
+        cells.forEach((c, i) => {
+          c.classList.remove("played", "prefix", "fresh", "drop");
+          if (i < Math.floor(progress)) c.classList.add("played");
+        });
+      }
+
+      function setBracket(from, to, on) {
+        if (!on) {
+          bracket.classList.remove("on");
+          return;
+        }
+        const left = cellLeftPct(from);
+        const right = cellLeftPct(to);
+        bracket.style.left = left + "%";
+        bracket.style.width = Math.max(0, right - left) + "%";
+        bracket.classList.add("on");
+      }
+
+      function highlightStory(n) {
+        storySteps.forEach((el) => {
+          el.classList.toggle("active", Number(el.dataset.step) === n);
+        });
+      }
+
+      function setStatus(t) {
+        status.textContent = t;
+      }
+
+      function paintPrefix(from, len) {
+        cells.forEach((c, i) => {
+          c.classList.remove("prefix");
+          if (i >= Math.floor(from) && i < Math.floor(from) + len) {
+            c.classList.add("prefix");
+          }
+        });
+      }
+
+      function paintFresh(from) {
+        cells.forEach((c, i) => {
+          c.classList.remove("fresh");
+          if (i >= from) c.classList.add("fresh");
+        });
+      }
+
+      function paintDrop(from) {
+        cells.forEach((c, i) => {
+          c.classList.remove("drop");
+          if (i >= from) c.classList.add("drop");
+        });
+      }
+
+      function resetVisual() {
+        clearTimers();
+        playing = false;
+        setBracket(0, 0, false);
+        cells.forEach((c) =>
+          c.classList.remove("played", "prefix", "fresh", "drop")
+        );
+        setProgress(2.0);
+        highlightStory(-1);
+        setStatus("已重置 · progress=2.0");
+        document.getElementById("btn-play").disabled = false;
+      }
+
+      function after(ms, fn) {
+        if (reduced) {
+          fn();
+          return;
+        }
+        timers.push(setTimeout(fn, ms));
+      }
+
+      function runAdvanceDemo() {
+        resetVisual();
+        playing = true;
+        highlightStory(1);
+        setStatus("advance：墙钟 → 模型步");
+        let p = 2.0;
+        setProgress(p);
+        let k = 0;
+        function tick() {
+          if (!playing) return;
+          p = Math.min(5.5, p + 0.35);
+          setProgress(p);
+          k++;
+          if (p < 5.5) after(220, tick);
+          else {
+            setStatus("advance 完成 · progress≈5.5");
+            playing = false;
+          }
+        }
+        after(300, tick);
+      }
+
+      function runPrefixDemo() {
+        resetVisual();
+        playing = true;
+        setProgress(5.0);
+        highlightStory(2);
+        setStatus("估计 L̂ → d̂=3 · 冻结 prefix");
+        after(400, () => {
+          const dHat = 3;
+          paintPrefix(5, dHat);
+          setBracket(5, 5 + dHat, true);
+          setStatus("prefix(d̂=3) 交给 RTC");
+          playing = false;
+        });
+      }
+
+      function runMergeDemo() {
+        resetVisual();
+        playing = true;
+        setProgress(5.0);
+        paintPrefix(5, 3);
+        setBracket(5, 8, true);
+        highlightStory(2);
+        setStatus("开推：d̂=3，控制环继续走…");
+        after(600, () => {
+          highlightStory(3);
+          let p = 5.0;
+          function walk() {
+            p += 0.4;
+            setProgress(p);
+            if (p < 7.2) after(200, walk);
+            else {
+              // actual d ≈ 2 (faster than dHat=3)
+              highlightStory(4);
+              setBracket(0, 0, false);
+              cells.forEach((c) => c.classList.remove("prefix"));
+              const d = 2;
+              setProgress(7.2, "progress=7.2  d=2");
+              paintFresh(7);
+              setStatus("merge：实际 d=2 < d̂=3，从新 chunk[2:] 接入");
+              playing = false;
+            }
+          }
+          walk();
+        });
+      }
+
+      function runLateDemo() {
+        resetVisual();
+        playing = true;
+        setProgress(8.0);
+        highlightStory(5);
+        setStatus("过期 chunk 到达…");
+        after(500, () => {
+          paintDrop(6);
+          setStatus("晚到丢弃：不写入 PlanBuffer");
+          after(1200, () => {
+            cells.forEach((c) => c.classList.remove("drop"));
+            setStatus("计划保持 progress=8.0 不变");
+            playing = false;
+          });
+        });
+      }
+
+      function runFullStory() {
+        resetVisual();
+        playing = true;
+        document.getElementById("btn-play").disabled = true;
+        highlightStory(0);
+        setProgress(2.0);
+        setStatus("0 · 计划就位");
+
+        after(700, () => {
+          highlightStory(1);
+          setStatus("1 · advance");
+          let p = 2.0;
+          function adv() {
+            p += 0.4;
+            setProgress(p);
+            if (p < 5.0) after(180, adv);
+            else phasePrefix();
+          }
+          adv();
+        });
+
+        function phasePrefix() {
+          highlightStory(2);
+          setProgress(5.0);
+          paintPrefix(5, 3);
+          setBracket(5, 8, true);
+          setStatus("2 · prefix(d̂=3) → RTC 开推");
+          after(1100, phaseInfer);
+        }
+
+        function phaseInfer() {
+          highlightStory(3);
+          setStatus("3 · 推理中，控制环不停 advance");
+          let p = 5.0;
+          function walk() {
+            p += 0.35;
+            setProgress(p);
+            // keep prefix highlight relative to original freeze start
+            if (p < 7.0) after(200, walk);
+            else phaseMerge();
+          }
+          walk();
+        }
+
+        function phaseMerge() {
+          highlightStory(4);
+          setBracket(0, 0, false);
+          cells.forEach((c) => c.classList.remove("prefix"));
+          setProgress(7.0, "progress=7.0  d≈2");
+          paintFresh(7);
+          setStatus("4 · merge：按实际 d 接入新 chunk");
+          after(1400, phaseLate);
+        }
+
+        function phaseLate() {
+          highlightStory(5);
+          // show a ghost drop then clear — illustrative stale arrival
+          paintDrop(4);
+          setStatus("5 · 若另有更旧结果到达 → 丢弃");
+          after(1200, () => {
+            cells.forEach((c) => c.classList.remove("drop"));
+            paintFresh(7);
+            setProgress(7.0);
+            setStatus("故事结束 · 计划继续从 progress=7 往前");
+            playing = false;
+            document.getElementById("btn-play").disabled = false;
+          });
+        }
+      }
+
+      // tick dots decoration
+      const dotsHost = document.getElementById("tick-dots");
+      for (let i = 0; i < 24; i++) {
+        const d = document.createElement("div");
+        d.className = "dot";
+        dotsHost.appendChild(d);
+      }
+      const dots = [...dotsHost.children];
+      let di = 0;
+      setInterval(() => {
+        if (reduced) return;
+        dots.forEach((d) => d.className = "dot");
+        dots[di % dots.length].classList.add("on-ctrl");
+        if (di % 8 === 0) dots[(di + 3) % dots.length].classList.add("on-inf");
+        di++;
+      }, 280);
+
+      document.getElementById("btn-play").addEventListener("click", runFullStory);
+      document.getElementById("btn-reset").addEventListener("click", resetVisual);
+      document.getElementById("btn-advance").addEventListener("click", runAdvanceDemo);
+      document.getElementById("btn-prefix").addEventListener("click", runPrefixDemo);
+      document.getElementById("btn-merge").addEventListener("click", runMergeDemo);
+      document.getElementById("btn-late").addEventListener("click", runLateDemo);
+
+      buildRail();
+      resetVisual();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TimeAxisQP · _retime_qp 处理流程</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #10131a;
+      --bg1: #171c26;
+      --bg2: #1f2633;
+      --ink: #e8ecf4;
+      --muted: #8b93a7;
+      --line: #2c3448;
+      --a: #5b9fd4;
+      --b: #3db89a;
+      --path: #c9a86c;
+      --tick: #f0c14a;
+      --warn: #d45d5d;
+      --lock: #b07cc9;
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --serif: "IBM Plex Serif", Georgia, serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 0% 0%, #1a2838 0%, transparent 55%),
+        radial-gradient(800px 480px at 100% 10%, #1a3028 0%, transparent 50%),
+        var(--bg0);
+      line-height: 1.55;
+      font-size: 16px;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 44px 20px 96px; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--b); margin: 0 0 10px;
+    }
+    h1 {
+      font-family: var(--serif); font-weight: 600;
+      font-size: clamp(1.55rem, 3.4vw, 2.15rem);
+      margin: 0 0 12px; letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .lede { color: var(--muted); max-width: 46em; margin: 0 0 28px; }
+    h2 { font-family: var(--serif); font-size: 1.25rem; margin: 40px 0 10px; }
+    h3 { font-size: 1.02rem; margin: 22px 0 8px; color: var(--ink); }
+    p { color: var(--muted); margin: 0 0 12px; }
+    ul, ol { color: var(--muted); margin: 0 0 14px; padding-left: 1.25em; }
+    li { margin: 0 0 6px; }
+    code { font-family: var(--mono); font-size: 0.88em; color: var(--tick); }
+    strong { color: var(--ink); font-weight: 600; }
+    a { color: var(--a); }
+    .card {
+      background: color-mix(in srgb, var(--bg1) 92%, transparent);
+      border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 16px 14px; margin: 14px 0 20px;
+    }
+    .grid2 {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+    .pane {
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; background: var(--bg1);
+    }
+    .pane h3 { margin: 0 0 6px; font-size: 0.95rem; }
+    .pane .sub { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+    .pill {
+      display: inline-block; font-family: var(--mono); font-size: 10px;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid; margin-right: 4px;
+    }
+    .pill.a { color: var(--a); border-color: var(--a); }
+    .pill.b { color: var(--b); border-color: var(--b); }
+    .pill.path { color: var(--path); border-color: var(--path); }
+    .pill.lock { color: var(--lock); border-color: var(--lock); }
+    .pill.warn { color: var(--warn); border-color: var(--warn); }
+
+    /* flowchart */
+    .flow-wrap {
+      overflow-x: auto; margin: 12px 0 8px;
+      border: 1px solid var(--line); border-radius: 12px;
+      background: var(--bg1); padding: 12px 8px;
+    }
+    svg.flow { width: 100%; min-width: 720px; height: auto; display: block; }
+    .flow text { font-family: var(--mono); fill: var(--ink); }
+    .flow .muted { fill: var(--muted); }
+    .flow .box {
+      fill: var(--bg2); stroke: var(--line); stroke-width: 1.2;
+    }
+    .flow .box.in { stroke: var(--a); }
+    .flow .box.const { stroke: var(--path); }
+    .flow .box.qp { stroke: var(--b); }
+    .flow .box.lock { stroke: var(--lock); }
+    .flow .box.out { stroke: var(--tick); }
+    .flow .box.dec { fill: var(--bg2); stroke: var(--warn); }
+    .flow .arrow { stroke: var(--muted); stroke-width: 1.4; fill: none; marker-end: url(#arrowHead); }
+    .flow .label { font-size: 11px; }
+    .flow .title { font-size: 12.5px; font-weight: 500; }
+    .flow .tiny { font-size: 10px; }
+
+    table.kv {
+      width: 100%; border-collapse: collapse; font-size: 0.92rem;
+    }
+    table.kv th, table.kv td {
+      text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    table.kv th {
+      font-family: var(--mono); font-size: 12px; color: var(--tick);
+      white-space: nowrap; width: 28%; font-weight: 500;
+    }
+    table.kv td { color: var(--muted); }
+    .eq {
+      font-family: var(--mono); font-size: 0.9em; color: var(--ink);
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 8px; padding: 10px 12px; margin: 8px 0 14px;
+      overflow-x: auto; white-space: pre-wrap;
+    }
+    .step {
+      border-left: 3px solid var(--b);
+      padding: 2px 0 2px 14px; margin: 16px 0 20px;
+    }
+    .step.s1 { border-color: var(--a); }
+    .step.s2 { border-color: var(--path); }
+    .step.s3 { border-color: var(--warn); }
+    .step.s4 { border-color: var(--lock); }
+    .step.s5 { border-color: var(--b); }
+    .step.s6 { border-color: var(--tick); }
+    .toc {
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px;
+    }
+    .toc a {
+      font-family: var(--mono); font-size: 12px; text-decoration: none;
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: 6px 10px; color: var(--muted); background: var(--bg1);
+    }
+    .toc a:hover { color: var(--ink); border-color: var(--a); }
+    .note {
+      font-size: 0.9rem; color: var(--muted);
+      border: 1px dashed var(--line); border-radius: 10px;
+      padding: 10px 12px; margin: 10px 0 16px;
+    }
+    footer {
+      margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+      font-size: 12px; color: var(--muted); font-family: var(--mono);
+    }
+
+    /* demo animation */
+    .demo {
+      border: 1px solid var(--line); border-radius: 12px;
+      background: var(--bg1); padding: 14px 14px 12px; margin: 14px 0 24px;
+    }
+    .demo .controls {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      margin-bottom: 10px;
+    }
+    .demo button {
+      font-family: var(--font); font-size: 13px; font-weight: 500;
+      border: 1px solid var(--line); background: var(--bg2); color: var(--ink);
+      border-radius: 999px; padding: 7px 14px; cursor: pointer;
+    }
+    .demo button.primary {
+      background: color-mix(in srgb, var(--b) 22%, var(--bg2));
+      border-color: color-mix(in srgb, var(--b) 45%, var(--line));
+      color: #b8f0dc;
+    }
+    .demo button:hover { filter: brightness(1.08); }
+    .demo button.active {
+      border-color: var(--a); color: var(--a);
+    }
+    .demo .status {
+      font-family: var(--mono); font-size: 12px; color: var(--muted);
+      margin-left: auto;
+    }
+    .demo .legend {
+      display: flex; flex-wrap: wrap; gap: 10px 14px;
+      font-size: 12px; color: var(--muted); margin: 0 0 10px;
+    }
+    .demo .legend i {
+      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      margin-right: 5px; vertical-align: -1px;
+    }
+    svg.demo-stage { width: 100%; height: auto; display: block; }
+    .demo .narr {
+      margin-top: 10px; font-size: 0.92rem; color: var(--muted);
+      min-height: 2.8em; border-top: 1px solid var(--line); padding-top: 10px;
+    }
+    .demo .narr strong { color: var(--ink); font-weight: 500; }
+    .demo .bars {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;
+    }
+    @media (max-width: 720px) { .demo .bars { grid-template-columns: 1fr; } }
+    .demo .bar-pane {
+      border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg0); padding: 8px 10px;
+    }
+    .demo .bar-pane .lab {
+      font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 6px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .demo .playhead, .demo .seg-glow { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="eyebrow">fasterVLA · F3 · L2 TimeAxisQP</p>
+    <h1><code>_retime_qp</code> 处理流程详解</h1>
+    <p class="lede">
+      源码：<code>src/fastervla/deploy/postprocess/retime.py</code> ·
+      由 <code>TimeAxisQP.retime()</code> 调用。
+      <strong>路点不变，只解每段时长</strong>：变量是速率
+      <code>s<sub>i</sub> = 1/dt<sub>i</sub></code>，输出非均匀
+      <code>step_dt[H]</code> 给 PlanBuffer。
+    </p>
+
+    <nav class="toc" aria-label="目录">
+      <a href="#qp">QP 公式</a>
+      <a href="#demo">原理动画</a>
+      <a href="#flow">总流程图</a>
+      <a href="#io">输入 / 输出</a>
+      <a href="#steps">分步拆解</a>
+      <a href="#obj">目标函数</a>
+      <a href="#calib">校准循环</a>
+      <a href="#fallback">外层 fallback</a>
+    </nav>
+
+    <!-- ========== QP FORMULATION ========== -->
+    <h2 id="qp">TimeAxisQP 是什么 QP？</h2>
+    <p>
+      是的：标准<strong>盒约束二次规划（box-constrained QP）</strong>。
+      路径路点 <code>waypoints</code> 固定不进决策；只优化每段播放速率。
+      全部不等式最终都折成对 <code>s</code> 的上下界，所以用 active-set Newton
+      （<code>box_qp</code>）即可精确求解；KKT 失败再退 L-BFGS-B / OSQP。
+    </p>
+
+    <div class="card">
+      <h3 style="margin-top:0">1. 决策变量</h3>
+      <div class="eq">s = (s_0, s_1, …, s_{H−1}) ∈ ℝ^H
+s_i ≜ 1 / dt_i     （第 i 段的「帧率」，单位 1/s）
+dt_i = 1 / s_i     （到达 waypoints[i] 相对上一结点的墙钟时长）</div>
+      <p style="margin:0">
+        <strong>不是</strong>决策关节角。几何路径已由策略给出；
+        L2 只重新分配「每一段花多少时间」。
+      </p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">2. 已知量（参数，不优化）</h3>
+      <table class="kv">
+        <tr><th>dp ∈ ℝ^{H×14}</th><td>臂差分：相邻结点关节位移（含 state→wp[0]）</td></tr>
+        <tr><th>κ, policy_fps</th><td>意图倍速；参考速率 <code>s_ref = fps·κ</code></td></tr>
+        <tr><th>dt_min, dt_max</th><td>时长盒 → <code>s ∈ [1/dt_max, 1/dt_min]</code></td></tr>
+        <tr><th>v_max ∈ ℝ^{14}</th><td>每关节角速度上限（可含 soft-lead 导出）</td></tr>
+        <tr><th>λ_time, λ_acc</th><td>目标权重（默认 0.1 / 1.0）</td></tr>
+        <tr><th>lock_durations</th><td>可选：前缀帧钉死的墙钟时长</td></tr>
+        <tr><th>r2r budget</th><td>可选：inference buffer 窗最小墙钟</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">3. 目标函数（凸二次）</h3>
+      <p>与 realtime-vla-v2 / 老栈 <code>arm_timeline</code> 相同，两项：</p>
+      <div class="eq">J(s) = (λ_time / s_ref²) · Σ_i (s_i − target)²
+    + (λ_acc / scale) · Σ_i ‖ s_{i+1} dp_{i+1} − s_i dp_i ‖₂²
+
+scale = mean( ‖dp_i‖² · s_ref² ) + ε     # 使两项量级可比
+target 初值 = s_ref，校准循环中可微调（见下）</div>
+      <ul>
+        <li><strong>时间项</strong>：把各段速率拉向 <code>target</code>（≈ κ·fps），整体更快/更慢。</li>
+        <li><strong>加速度项</strong>：惩罚相邻段「速度向量」
+          <code>s·dp</code> 的跳变，避免时间轴抖、段间忽快忽慢。</li>
+      </ul>
+      <p>写成标准 QP：</p>
+      <div class="eq">min_s   ½ sᵀ H s + qᵀ s
+
+H = rate_hessian(dp, s_ref, λ_time, λ_acc)   # 对称正定
+q = −2 · wt · target · 1                     # wt = λ_time / s_ref²
+# 注：代码里目标是 ½ s'Hs + q's，与展开的 Σ(s−target)² 差一个常数，不影响 argmin</div>
+      <p style="margin:0">
+        <code>H</code> 的对角含时间项 <code>2·wt</code>，以及加速度项对
+        <code>‖dp‖²</code> / 交叉 <code>dp_i·dp_{i+1}</code> 的贡献
+        （见 <code>rate_hessian</code>）。
+      </p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">4. 约束条件（全部变成盒子）</h3>
+      <p>原始物理约束 → 对每个 <code>s_i</code> 的区间 <code>[lower_i, upper_i]</code>：</p>
+      <table class="kv">
+        <tr>
+          <th>时长盒</th>
+          <td>
+            <code>dt_min ≤ dt_i ≤ dt_max</code><br />
+            ⇔ <code>1/dt_max ≤ s_i ≤ 1/dt_min</code><br />
+            即 <code>s_min ≤ s_i ≤ s_max</code>
+          </td>
+        </tr>
+        <tr>
+          <th>速度盒</th>
+          <td>
+            对每关节 j：<code>|dp_{ij}| / dt_i ≤ v_max_j</code><br />
+            ⇔ <code>s_i ≤ v_max_j / |dp_{ij}|</code>（|dp|≈0 则无约束）<br />
+            取最紧关节：<code>upper_i ← min(upper_i, min_j v_max_j/|dp_{ij}|)</code>
+          </td>
+        </tr>
+        <tr>
+          <th>buffer 窗<br />（可选）</th>
+          <td>
+            希望 <code>Σ_{i∈[p,p+b)} dt_i ≥ budget</code><br />
+            老栈用充分条件：窗内每帧 <code>s_i ≤ b / budget</code><br />
+            （平均速率上限；实现简单、仍是盒子）
+          </td>
+        </tr>
+        <tr>
+          <th>prefix lock<br />（可选）</th>
+          <td>
+            RTC 引导段：<code>dt_i = lock_i</code>（给定）<br />
+            ⇔ <code>lower_i = upper_i = 1/lock_i</code>（等式钉死）
+          </td>
+        </tr>
+      </table>
+      <div class="eq" style="margin-bottom:0">完整问题：
+
+min_s   ½ sᵀ H s + qᵀ s
+s.t.    lower_i  ≤  s_i  ≤  upper_i     ∀ i = 0…H−1
+
+# 无一般线性不等式 Ax≤b；全部是坐标轴对齐的盒子
+# ⇒ box_qp / OSQP 都只处理 bound constraints</div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">5. 求解与校准（在 QP 外包一层）</h3>
+      <div class="grid2">
+        <div class="pane">
+          <h3>内层：固定 target 解一次 QP</h3>
+          <p class="sub"><code>_solve_rates</code></p>
+          <ol style="margin:0;padding-left:1.1em;font-size:0.92rem">
+            <li>组 <code>q = −2·wt·target·1</code></li>
+            <li><code>box_qp(H,q,lower,upper)</code></li>
+            <li>KKT 不过 → L-BFGS-B；或直接 OSQP</li>
+          </ol>
+        </div>
+        <div class="pane">
+          <h3>外层：校准 target</h3>
+          <p class="sub"><code>_calibrated_rates</code></p>
+          <p style="margin:0;font-size:0.92rem">
+            加速度项会把 <code>s</code> 往小拽，实测倍速偏慢。
+            在<strong>未被 upper 封顶</strong>的 free 帧上估
+            <code>achieved</code>，令
+            <code>target ← target · (s_ref/achieved)</code>，
+            再解 QP，直到接近 <code>s_ref</code>（≤8 次）。
+          </p>
+        </div>
+      </div>
+      <p style="margin:12px 0 0">
+        解出 <code>s*</code> 后：<code>step_dt = 1/s*</code>，
+        lock 帧再强制盖回 <code>lock_durations</code>，打包成
+        <code>TimedChunk</code>。失败则整段退
+        <code>UniformRetimer</code>（常数 <code>dt=1/(κ·fps)</code>）。
+      </p>
+    </div>
+
+    <div class="note">
+      <strong>一句话</strong>：决策变量是每段速率 <code>s=1/dt</code>；
+      目标是「靠近 κ·fps + 段间速度平滑」的凸二次型；
+      约束是时长盒、关节 v_max、可选 buffer/lock——全部变成
+      <code>lower ≤ s ≤ upper</code>。所以叫 Time<strong>Axis</strong>QP：动的是时间轴，不是轨迹形状。
+    </div>
+
+    <!-- ========== DEMO ========== -->
+    <h2 id="demo">原理动画：dp → 限速 → 非均匀 dt</h2>
+    <p>
+      示意一条 1 维「关节角」路径（6 个结点）。棕点位置<strong>永不移动</strong>；
+      段长 <code>|dp|</code> 决定「这段有多陡」。Uniform 匀速扫过；
+      QP 在大 <code>|dp|</code> 段放慢、小段加快，总墙钟更接近 κ 意图且不超 <code>v_max</code>。
+    </p>
+
+    <div class="demo" id="demo-root">
+      <div class="legend">
+        <span><i style="background:var(--path)"></i>棕点 = 路点（路径固定）</span>
+        <span><i style="background:var(--warn)"></i>粗段 = |dp| 大（陡）</span>
+        <span><i style="background:var(--a)"></i>蓝条 = Uniform 每段 dt</span>
+        <span><i style="background:var(--b)"></i>绿条 = QP 每段 dt</span>
+        <span><i style="background:var(--tick)"></i>黄点 = 播放头</span>
+      </div>
+      <div class="controls">
+        <button type="button" class="primary" id="demo-play">播放</button>
+        <button type="button" id="demo-reset">重置</button>
+        <button type="button" class="active" id="demo-mode-u" data-mode="uniform">Uniform</button>
+        <button type="button" id="demo-mode-q" data-mode="qp">TimeAxisQP</button>
+        <button type="button" id="demo-step">单步阶段</button>
+        <span class="status" id="demo-status">待命 · 点播放看全程</span>
+      </div>
+
+      <svg class="demo-stage" id="demo-svg" viewBox="0 0 900 320" role="img" aria-label="臂差分与重定时动画"></svg>
+
+      <div class="bars">
+        <div class="bar-pane">
+          <div class="lab">Uniform · dt 常数（κ 匀速）</div>
+          <svg id="bars-u" viewBox="0 0 420 48" width="100%" height="48" aria-hidden="true"></svg>
+        </div>
+        <div class="bar-pane">
+          <div class="lab">QP · dt 随 |dp| 变（大位移更长）</div>
+          <svg id="bars-q" viewBox="0 0 420 48" width="100%" height="48" aria-hidden="true"></svg>
+        </div>
+      </div>
+
+      <p class="narr" id="demo-narr">
+        <strong>准备。</strong>下面会依次：标出路点 → 画出每段 dp → 用 v_max 标出限速段 → 对比两种时间轴上的播放头。
+      </p>
+    </div>
+
+    <!-- ========== FLOW ========== -->
+    <h2 id="flow">总流程图</h2>
+    <p>从状态与路点差分，到盒约束收紧，再到 QP + 校准，最后组装 <code>TimedChunk</code>。</p>
+
+    <div class="flow-wrap" role="img" aria-label="_retime_qp 流程图">
+      <svg class="flow" viewBox="0 0 900 980" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrowHead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#8b93a7" />
+          </marker>
+        </defs>
+
+        <!-- 1 input -->
+        <rect class="box in" x="260" y="16" width="380" height="56" rx="10" />
+        <text class="title" x="450" y="40" text-anchor="middle">① 输入</text>
+        <text class="tiny muted" x="450" y="58" text-anchor="middle">chunk.waypoints[H,24] · state[24] · lock_durations? · r2r_samples_ms?</text>
+        <path class="arrow" d="M450 72 V96" />
+
+        <!-- 2 dp -->
+        <rect class="box in" x="200" y="96" width="500" height="70" rx="10" />
+        <text class="title" x="450" y="122" text-anchor="middle">② 臂差分 dp</text>
+        <text class="tiny muted" x="450" y="142" text-anchor="middle">points = [state_arm; wp[:,8:22]] → dp = diff(points) · shape (H,14)</text>
+        <text class="tiny muted" x="450" y="156" text-anchor="middle">无 state 时用 wp[0,8:22] 充当起点</text>
+        <path class="arrow" d="M450 166 V190" />
+
+        <!-- 3 box seed -->
+        <rect class="box const" x="200" y="190" width="500" height="64" rx="10" />
+        <text class="title" x="450" y="216" text-anchor="middle">③ 初始速率盒</text>
+        <text class="tiny muted" x="450" y="236" text-anchor="middle">s_ref = fps·κ ··· s_min=1/dt_max · s_max=1/dt_min ··· lower/upper ← [s_min,s_max]</text>
+        <path class="arrow" d="M450 254 V278" />
+
+        <!-- 4 v_max -->
+        <rect class="box const" x="200" y="278" width="500" height="64" rx="10" />
+        <text class="title" x="450" y="304" text-anchor="middle">④ 收紧 upper：逐关节 v_max</text>
+        <text class="tiny muted" x="450" y="324" text-anchor="middle">velocity_cap[i] = min_j (v_max_j / |dp[i,j]|) ··· upper ← min(upper, max(cap, s_min))</text>
+        <path class="arrow" d="M450 342 V360" />
+
+        <!-- diamond buffer -->
+        <path class="box dec" d="M450 360 L560 400 L450 440 L340 400 Z" />
+        <text class="title" x="450" y="396" text-anchor="middle">buffer</text>
+        <text class="tiny" x="450" y="412" text-anchor="middle">window?</text>
+        <path class="arrow" d="M560 400 H640" />
+        <text class="tiny muted" x="600" y="392" text-anchor="start">Y</text>
+        <rect class="box const" x="640" y="372" width="230" height="56" rx="8" />
+        <text class="tiny" x="755" y="396" text-anchor="middle">⑤ upper[prefix:prefix+buf]</text>
+        <text class="tiny muted" x="755" y="414" text-anchor="middle">≤ buffer / r2r_budget</text>
+        <path class="arrow" d="M450 440 V468" />
+        <text class="tiny muted" x="458" y="456" text-anchor="start">N / 合并</text>
+
+        <!-- 6 lock -->
+        <rect class="box lock" x="200" y="468" width="500" height="56" rx="10" />
+        <text class="title" x="450" y="492" text-anchor="middle">⑥ prefix lock（可选）</text>
+        <text class="tiny muted" x="450" y="510" text-anchor="middle">locked 帧：lower=upper=1/lock_durations ··· 钉死 RTC 引导段墙钟</text>
+        <path class="arrow" d="M450 524 V548" />
+
+        <!-- 7 free window -->
+        <rect class="box lock" x="200" y="548" width="500" height="56" rx="10" />
+        <text class="title" x="450" y="572" text-anchor="middle">⑦ 校准窗 free</text>
+        <text class="tiny muted" x="450" y="590" text-anchor="middle">buffer on → free=[locked, prefix+buffer) ··· off → free=[locked, H)</text>
+        <path class="arrow" d="M450 604 V628" />
+
+        <!-- 8 qp -->
+        <rect class="box qp" x="160" y="628" width="580" height="78" rx="10" />
+        <text class="title" x="450" y="654" text-anchor="middle">⑧ rate_hessian → _calibrated_rates</text>
+        <text class="tiny muted" x="450" y="674" text-anchor="middle">迭代：box_qp / osqp / L-BFGS-B 拉向 target；按 free 窗实测倍速回标 target</text>
+        <text class="tiny muted" x="450" y="690" text-anchor="middle">输出 rates[H]、solver 名、最终 time_target</text>
+        <path class="arrow" d="M450 706 V730" />
+
+        <!-- 9 durations -->
+        <rect class="box qp" x="200" y="730" width="500" height="56" rx="10" />
+        <text class="title" x="450" y="754" text-anchor="middle">⑨ durations = 1/rates · 再盖 lock</text>
+        <text class="tiny muted" x="450" y="772" text-anchor="middle">cumsum → times[0..H]；任一 Δt≤0 → raise（外层退 Uniform）</text>
+        <path class="arrow" d="M450 786 V810" />
+
+        <!-- 10 out -->
+        <rect class="box out" x="180" y="810" width="540" height="78" rx="10" />
+        <text class="title" x="450" y="836" text-anchor="middle">⑩ 组装 TimedChunk</text>
+        <text class="tiny muted" x="450" y="856" text-anchor="middle">waypoints 原样拷贝 · step_dt=durations · speed=1/dt</text>
+        <text class="tiny muted" x="450" y="872" text-anchor="middle">meta: retime_status / executed_speed / velocity_limited_frames / …</text>
+
+        <!-- legend -->
+        <text class="tiny muted" x="24" y="950">色块：</text>
+        <rect x="70" y="940" width="12" height="12" rx="2" fill="#1f2633" stroke="#5b9fd4" />
+        <text class="tiny muted" x="86" y="950">输入/差分</text>
+        <rect x="170" y="940" width="12" height="12" rx="2" fill="#1f2633" stroke="#c9a86c" />
+        <text class="tiny muted" x="186" y="950">盒约束</text>
+        <rect x="260" y="940" width="12" height="12" rx="2" fill="#1f2633" stroke="#b07cc9" />
+        <text class="tiny muted" x="276" y="950">lock/窗</text>
+        <rect x="350" y="940" width="12" height="12" rx="2" fill="#1f2633" stroke="#3db89a" />
+        <text class="tiny muted" x="366" y="950">QP</text>
+        <rect x="410" y="940" width="12" height="12" rx="2" fill="#1f2633" stroke="#f0c14a" />
+        <text class="tiny muted" x="426" y="950">输出</text>
+        <rect x="480" y="940" width="12" height="12" rx="2" fill="#1f2633" stroke="#d45d5d" />
+        <text class="tiny muted" x="496" y="950">分支</text>
+      </svg>
+    </div>
+
+    <!-- ========== IO ========== -->
+    <h2 id="io">输入 / 输出</h2>
+    <div class="grid2">
+      <div class="pane">
+        <h3><span class="pill a">IN</span> 参数</h3>
+        <p class="sub">关键字参数，无默认求解副作用</p>
+        <table class="kv">
+          <tr><th>chunk</th><td>策略路点 <code>[H,24]</code>，绝对关节角</td></tr>
+          <tr><th>state</th><td>当前 24 维状态；用于第一段差分。缺省则用 <code>wp[0]</code></td></tr>
+          <tr><th>lock_durations</th><td>前缀帧墙钟时长；RTC 引导段与旧计划对齐</td></tr>
+          <tr><th>r2r_samples_ms</th><td>近期 request→ready；仅 <code>buffer_window_enabled</code> 时用</td></tr>
+        </table>
+      </div>
+      <div class="pane">
+        <h3><span class="pill path">OUT</span> TimedChunk</h3>
+        <p class="sub">路径不变；时间轴可变</p>
+        <table class="kv">
+          <tr><th>waypoints</th><td>原样拷贝（float32）</td></tr>
+          <tr><th>step_dt</th><td>长度 H；段 i 是到达第 i 帧的时长</td></tr>
+          <tr><th>speed</th><td><code>1/step_dt</code></td></tr>
+          <tr><th>meta</th><td>solver、executed_speed、velocity_limited_frames…</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>变量语义</strong>：求解变量是速率 <code>s<sub>i</sub></code>（单位 1/s），不是 <code>dt</code>。
+      盒约束 <code>[s_min, s_max] = [1/dt_max, 1/dt_min]</code>。
+      老栈节点时轴 <code>T[0..H]</code>，这里用 <code>step_dt = diff(T)</code> 等价表示。
+    </div>
+
+    <!-- ========== STEPS ========== -->
+    <h2 id="steps">分步拆解</h2>
+
+    <div class="step s1">
+      <h3>①–② 构造臂差分 <code>dp</code></h3>
+      <p>
+        只取双臂 14 维 <code>[8:22]</code>（腰/头/夹爪不进 L2）。
+        把「当前臂状态」垫在路点前面，再 <code>np.diff</code>：
+      </p>
+      <div class="eq">points = vstack([state_arm, actions[:, 8:22]])   # (H+1, 14)
+dp     = diff(points, axis=0)                   # (H, 14)
+# dp[i] = 到达第 i 帧时，相对上一结点的关节位移</div>
+      <p>
+        因此 <code>|dp[5,j]| / step_dt[5]</code> 就是第 5 段上关节 j 的平均速率——
+        与单测「大位移帧被 v_max 限速」的契约一致。
+      </p>
+    </div>
+
+    <div class="step s2">
+      <h3>③ 初始速率盒 + 参考速率</h3>
+      <div class="eq">s_ref = policy_fps · κ          # 想要的平均帧率，如 30×1.2 = 36 Hz
+s_min = 1 / dt_max_s            # 最慢（默认 dt_max=80ms → 12.5 Hz）
+s_max = 1 / dt_min_s            # 最快（默认 dt_min=15ms → ~66.7 Hz）
+lower[:] = s_min
+upper[:] = s_max</div>
+      <p>
+        配置阶段已保证 <code>1/(fps·κ) ∈ [dt_min, dt_max]</code>，否则构造
+        <code>TimeAxisQPConfig</code> 直接抛错——避免 QP 无可行参考点。
+      </p>
+    </div>
+
+    <div class="step s2">
+      <h3>④ 用 <code>v_max</code> 收紧 upper</h3>
+      <p>
+        <code>_velocity_limit()</code> 得到 14 维上限（显式 <code>v_max_rad_s</code>
+        与可选 soft-lead 导出上限 <code>max_lead/(gain·τ)</code> 取更紧者）。
+      </p>
+      <div class="eq">per_joint[i,j] = v_max[j] / |dp[i,j]|     # 该段该关节允许的最大 s
+velocity_cap[i] = min_j per_joint[i,j]  # 该段最紧关节
+upper[i] = min(upper[i], max(velocity_cap[i], s_min))</div>
+      <p>
+        大位移段 <code>|dp|</code> 大 → <code>velocity_cap</code> 小 → 强制更长
+        <code>dt</code>。小位移段几乎不受限，可被 κ 拉快。
+        这就是「κ 给意图、QP 在物理盒内抹平」的核心。
+      </p>
+    </div>
+
+    <div class="step s3">
+      <h3>⑤ 可选：inference buffer 墙钟地板</h3>
+      <p>
+        仅当 <code>buffer_window_enabled=True</code>（CLI：
+        <code>--qp-buffer-window</code>）。用近期 r2r 的 p95 + margin 作预算：
+      </p>
+      <div class="eq">budget = (p95(r2r_ms) + margin_ms) / 1000     # 秒
+# 希望 Σ dt[prefix : prefix+buffer] ≥ budget
+# 等价：该窗内平均 s ≤ buffer / budget
+budget_cap = max(buffer / budget, s_min)
+upper[prefix : prefix+buffer] = min(upper[…], budget_cap)</div>
+      <p>
+        F3 默认关闭：L1 的 <code>d̂</code> 已承担「推理窗够不够」；
+        保留此开关是为了与老栈 A/B 对齐。
+      </p>
+    </div>
+
+    <div class="step s4">
+      <h3>⑥–⑦ prefix lock 与校准窗</h3>
+      <div class="grid2">
+        <div class="pane">
+          <h3><span class="pill lock">lock</span> 钉死前缀</h3>
+          <p class="sub">RTC / handoff 对齐旧计划</p>
+          <p style="margin:0;font-size:0.92rem">
+            对前 <code>locked</code> 帧设
+            <code>lower = upper = 1/lock_dt</code>，
+            求解后仍再盖一遍 <code>durations[:locked]</code>，
+            数值上双保险。
+          </p>
+        </div>
+        <div class="pane">
+          <h3><span class="pill b">free</span> 校准哪些帧</h3>
+          <p class="sub">决定 executed_speed 看哪一段</p>
+          <p style="margin:0;font-size:0.92rem">
+            buffer 开：只在 <code>[locked, prefix+buffer)</code> 上校准（老栈行为）。
+            buffer 关：整段 <code>[locked, H)</code>——κ 提速单测依赖此路径。
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s5">
+      <h3>⑧–⑨ 建 Hessian、求解、还原时长</h3>
+      <p>
+        <code>rate_hessian(dp, s_ref, λ_time, λ_acc)</code> 给出二次型
+        <code>H</code> 与时间项权重 <code>wt</code>，然后进入
+        <a href="#calib">校准循环</a>。成功后：
+      </p>
+      <div class="eq">durations = 1 / rates
+if locked: durations[:locked] = lock_durations   # 强制覆盖
+times = [0] + cumsum(durations)
+assert all(diff(times) > 0)                      # 否则抛错 → fallback</div>
+    </div>
+
+    <div class="step s6">
+      <h3>⑩ meta 与返回</h3>
+      <table class="kv">
+        <tr>
+          <th>retime_status</th>
+          <td><code>active_set</code> / <code>lbfgsb</code> / <code>osqp</code>（失败路径在外层写成 <code>uniform_fallback</code>）</td>
+        </tr>
+        <tr>
+          <th>executed_speed</th>
+          <td>校准窗上 <code>(n_frames / fps) / wall_span</code>，应接近 κ</td>
+        </tr>
+        <tr>
+          <th>time_target_speed</th>
+          <td>校准后的内部 target / fps（可能略高于 κ 以抵消加速项收缩）</td>
+        </tr>
+        <tr>
+          <th>velocity_limited_frames</th>
+          <td><code>velocity_cap[i] &lt; s_ref</code> 的帧下标（大位移被限速）</td>
+        </tr>
+        <tr>
+          <th>locked_frames</th>
+          <td>前缀钉死帧数</td>
+        </tr>
+      </table>
+      <p>
+        <code>model_dt</code> 取 <code>mean(durations)</code> 仅作摘要；
+        PlanBuffer 真正推进用的是整条 <code>step_dt</code>。
+      </p>
+    </div>
+
+    <!-- ========== OBJ ========== -->
+    <h2 id="obj">目标函数（与老栈一致）</h2>
+    <p>变量 <code>s ∈ ℝ<sup>H</sup></code>，位移序列 <code>dp<sub>i</sub> ∈ ℝ<sup>14</sup></code>：</p>
+    <div class="eq">min_s   (λ_time / s_ref²) · Σ_i (s_i − target)²
+      + (λ_acc / scale) · Σ_i |s_{i+1} dp_{i+1} − s_i dp_i|²
+
+s.t.    s_min ≤ s_i ≤ s_max
+        |dp_{ij}| · s_i ≤ v_max_j          （已折入 upper）
+        s_i = 1/lock_dt_i                  （locked 帧，lower=upper）
+        （可选）buffer 窗平均 s ≤ buffer/budget</div>
+    <p>
+      第一项把速率拉向 <code>target</code>（初值 = <code>s_ref</code>）；
+      第二项惩罚相邻段「速度向量」跳变，抑制时间轴抖动。
+      权重按 <code>s_ref</code> 归一，与 realtime-vla-v2 /
+      <code>arm_timeline.py</code> 相同。
+    </p>
+
+    <!-- ========== CALIB ========== -->
+    <h2 id="calib">校准循环 <code>_calibrated_rates</code></h2>
+    <p>
+      加速度正则会把所有 <code>s</code> 往 0 拽，导致实测倍速偏慢。
+      因此在 <strong>未被硬帽压住</strong> 的 free 帧上估实测帧率，回标
+      <code>target</code>（最多 <code>calibrate_iters</code> 次，默认 8）：
+    </p>
+    <div class="eq">calibrate = { i ∈ free | upper[i] ≥ s_ref }   # 排除已被 v_max/buffer 封顶的帧
+loop:
+  rates, solver = _solve_rates(H, wt, target, lower, upper)
+  achieved = |calibrate| / Σ_{i∈calibrate} (1/rates[i])
+  ratio = s_ref / achieved
+  if |ratio − 1| &lt; 0.002: break
+  target ← clip(target · ratio, 0.5·s_ref, 4·s_ref)</div>
+    <div class="card">
+      <p style="margin:0 0 8px"><strong>求解器选择</strong>（<code>_solve_rates</code>）</p>
+      <ol style="margin-bottom:0">
+        <li><code>solver=osqp</code> → 直接 OSQP</li>
+        <li>否则先 <code>box_qp</code>（active-set Newton）；KKT 通过则标
+          <code>active_set</code></li>
+        <li>KKT 失败 → SciPy L-BFGS-B 兜底</li>
+      </ol>
+    </div>
+
+    <!-- ========== FALLBACK ========== -->
+    <h2 id="fallback">外层 fallback</h2>
+    <p>
+      <code>_retime_qp</code> 本身不吞异常；
+      <code>TimeAxisQP.retime</code> 用 try/except 包住：
+      任意失败（含「非正时长」）退回同 κ 的 <code>UniformRetimer</code>，
+      并写 <code>meta.retime_status = "uniform_fallback"</code> +
+      <code>retime_error</code>。热路径上 PlanBuffer 始终能拿到合法
+      <code>step_dt</code>。
+    </p>
+
+    <div class="card">
+      <p style="margin:0 0 8px"><strong>和 Uniform 的分工</strong></p>
+      <div class="grid2">
+        <div>
+          <span class="pill path">Uniform</span>
+          <p style="margin:6px 0 0;font-size:0.9rem">
+            <code>dt = 1/(κ·fps)</code> 常数；无 v_max、无 lock。F2 默认，可靠基线。
+          </p>
+        </div>
+        <div>
+          <span class="pill b">TimeAxisQP</span>
+          <p style="margin:6px 0 0;font-size:0.9rem">
+            路径不变、时长按物理盒重分配；大位移段自动放慢。F3：
+            <code>run --retimer qp</code>。
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      docs/retime-qp-flow.html · 对照 src/fastervla/deploy/postprocess/retime.py:_retime_qp
+      · 行为对齐 g2_tools/h7_deploy/scripts/arm_timeline.py:plan_frame_times
+    </footer>
+  </div>
+
+  <script>
+  (() => {
+    const NS = "http://www.w3.org/2000/svg";
+    const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Toy 1-D path: 6 knots. One big jump (large |dp|) in the middle.
+    const q = [0.05, 0.18, 0.28, 0.78, 0.88, 0.95]; // normalized joint angle
+    const H = q.length - 1;
+    const dp = q.slice(1).map((v, i) => Math.abs(v - q[i]));
+    const V_MAX = 1.15; // toy units / sec
+    const KAPPA = 1.2;
+    const DT_U = 1 / (6 * KAPPA); // uniform dt (toy fps=6)
+    const dtU = Array(H).fill(DT_U);
+
+    // QP-like: dt_i >= |dp|/v_max, then shrink free segments toward κ total.
+    function solveToyQp() {
+      const floor = dp.map((d) => Math.max(d / V_MAX, 0.04));
+      let dt = floor.slice();
+      const targetTotal = H * DT_U;
+      // Greedy: keep floors on steep segs; redistribute slack to mild segs.
+      for (let iter = 0; iter < 20; iter++) {
+        const sum = dt.reduce((a, b) => a + b, 0);
+        const ratio = targetTotal / sum;
+        if (Math.abs(ratio - 1) < 0.01) break;
+        dt = dt.map((t, i) => {
+          const capped = floor[i];
+          const scaled = t * ratio;
+          // Cannot go below velocity floor.
+          return Math.max(capped, scaled);
+        });
+      }
+      return dt;
+    }
+    const dtQ = solveToyQp();
+
+    const svg = document.getElementById("demo-svg");
+    const barsU = document.getElementById("bars-u");
+    const barsQ = document.getElementById("bars-q");
+    const narr = document.getElementById("demo-narr");
+    const status = document.getElementById("demo-status");
+    const btnPlay = document.getElementById("demo-play");
+    const btnReset = document.getElementById("demo-reset");
+    const btnStep = document.getElementById("demo-step");
+    const btnU = document.getElementById("demo-mode-u");
+    const btnQ = document.getElementById("demo-mode-q");
+
+    const W = 900, pathY = 120, barY = 230;
+    const x0 = 70, x1 = 830;
+    const yTop = 40, yBot = 200;
+
+    function el(name, attrs, parent) {
+      const n = document.createElementNS(NS, name);
+      for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+      (parent || svg).appendChild(n);
+      return n;
+    }
+    function clear(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function qx(i) {
+      // Place knots by index on x; y encodes joint angle (path geometry).
+      return x0 + (i / H) * (x1 - x0);
+    }
+    function qy(val) {
+      return yBot - val * (yBot - yTop);
+    }
+
+    let mode = "uniform"; // or qp
+    let phase = 0; // 0 idle build stages, then play
+    let raf = 0;
+    let playing = false;
+    let tWall = 0; // 0..1 along selected schedule
+    let reveal = 0; // 0..4 staged reveal for "单步阶段"
+
+    const stages = [
+      {
+        reveal: 1,
+        text: "<strong>① 路点。</strong>棕点是关节空间路径结点；位置固定，QP <em>不会</em>改它们。",
+      },
+      {
+        reveal: 2,
+        text: "<strong>② 臂差分 dp。</strong>每段 |dp| = |q<sub>i</sub>−q<sub>i−1</sub>|。线越粗 = 位移越大（更陡）。",
+      },
+      {
+        reveal: 3,
+        text: "<strong>③ v_max 限速。</strong>要求 |dp|/dt ≤ v_max → 陡段 dt 必须 ≥ |dp|/v_max（红虚线地板）。",
+      },
+      {
+        reveal: 4,
+        text: "<strong>④ 时间轴。</strong>底下色条是每段 dt。切到 TimeAxisQP：陡段变长、缓段缩短；路径形状不变。",
+      },
+    ];
+
+    function schedule(dtArr) {
+      const T = [0];
+      for (const d of dtArr) T.push(T[T.length - 1] + d);
+      return T;
+    }
+    function posAt(dtArr, u) {
+      // u in [0,1] of total duration → (seg, frac) along path index.
+      const T = schedule(dtArr);
+      const total = T[T.length - 1];
+      const t = u * total;
+      let i = 0;
+      while (i < H - 1 && T[i + 1] < t - 1e-12) i++;
+      const span = T[i + 1] - T[i] || 1e-9;
+      const frac = Math.min(1, Math.max(0, (t - T[i]) / span));
+      const qNow = q[i] + (q[i + 1] - q[i]) * frac;
+      const x = qx(i) + (qx(i + 1) - qx(i)) * frac;
+      const y = qy(qNow);
+      return { i, frac, x, y, t, total, qNow };
+    }
+
+    function drawBars(target, dtArr, color, activeSeg) {
+      clear(target);
+      const maxDt = Math.max(...dtU, ...dtQ) * 1.15;
+      const gap = 4;
+      const bw = (420 - gap * (H - 1)) / H;
+      dtArr.forEach((d, i) => {
+        const h = (d / maxDt) * 36;
+        const x = i * (bw + gap);
+        const r = document.createElementNS(NS, "rect");
+        r.setAttribute("x", x);
+        r.setAttribute("y", 40 - h);
+        r.setAttribute("width", bw);
+        r.setAttribute("height", h);
+        r.setAttribute("rx", 3);
+        r.setAttribute("fill", color);
+        r.setAttribute("opacity", activeSeg === i ? "1" : "0.45");
+        target.appendChild(r);
+        const lab = document.createElementNS(NS, "text");
+        lab.setAttribute("x", x + bw / 2);
+        lab.setAttribute("y", 46);
+        lab.setAttribute("text-anchor", "middle");
+        lab.setAttribute("fill", "#8b93a7");
+        lab.setAttribute("font-size", "9");
+        lab.setAttribute("font-family", "IBM Plex Mono, monospace");
+        lab.textContent = "s" + i;
+        target.appendChild(lab);
+      });
+    }
+
+    function drawMain(activeSeg) {
+      clear(svg);
+      // axes
+      el("text", { x: 16, y: 28, class: "tiny muted", fill: "#8b93a7", "font-size": "11" }).textContent = "关节角 q";
+      el("line", { x1: x0, y1: yTop, x2: x0, y2: yBot, stroke: "#2c3448", "stroke-width": "1" });
+      el("line", { x1: x0, y1: yBot, x2: x1, y2: yBot, stroke: "#2c3448", "stroke-width": "1" });
+      el("text", { x: x1, y: yBot + 18, class: "tiny muted", fill: "#8b93a7", "font-size": "11", "text-anchor": "end" }).textContent = "模型步 index";
+
+      // path polyline (always faintly)
+      if (reveal >= 1) {
+        let d = `M ${qx(0)} ${qy(q[0])}`;
+        for (let i = 1; i <= H; i++) d += ` L ${qx(i)} ${qy(q[i])}`;
+        el("path", {
+          d,
+          fill: "none",
+          stroke: "#c9a86c",
+          "stroke-width": "1.5",
+          opacity: reveal >= 2 ? "0.35" : "0.85",
+        });
+      }
+
+      // segments as thick strokes proportional to |dp|
+      if (reveal >= 2) {
+        const maxDp = Math.max(...dp);
+        for (let i = 0; i < H; i++) {
+          const thick = 2 + (dp[i] / maxDp) * 10;
+          const isHot = dp[i] > 0.25;
+          el("line", {
+            x1: qx(i), y1: qy(q[i]),
+            x2: qx(i + 1), y2: qy(q[i + 1]),
+            stroke: isHot ? "#d45d5d" : "#c9a86c",
+            "stroke-width": String(thick),
+            "stroke-linecap": "round",
+            opacity: activeSeg === i ? "1" : "0.75",
+            class: "seg-glow",
+          });
+          // dp label
+          const mx = (qx(i) + qx(i + 1)) / 2;
+          const my = (qy(q[i]) + qy(q[i + 1])) / 2 - 14;
+          el("text", {
+            x: mx, y: my, "text-anchor": "middle",
+            fill: isHot ? "#d45d5d" : "#8b93a7",
+            "font-size": "10", "font-family": "IBM Plex Mono, monospace",
+          }).textContent = `|dp|=${dp[i].toFixed(2)}`;
+        }
+      }
+
+      // v_max floor markers on time bar row
+      if (reveal >= 3) {
+        el("text", {
+          x: x0, y: barY - 18, fill: "#8b93a7", "font-size": "11",
+          "font-family": "IBM Plex Mono, monospace",
+        }).textContent = "dt 地板 ≈ |dp| / v_max（红虚线）";
+        const floors = dp.map((d) => d / V_MAX);
+        const maxShow = Math.max(...dtQ, ...dtU, ...floors) * 1.2;
+        const gap = 8;
+        const bw = (x1 - x0 - gap * (H - 1)) / H;
+        floors.forEach((f, i) => {
+          const h = (f / maxShow) * 56;
+          const x = x0 + i * (bw + gap);
+          el("rect", {
+            x, y: barY + 56 - h, width: bw, height: h, rx: 3,
+            fill: "none", stroke: "#d45d5d", "stroke-width": "1.2",
+            "stroke-dasharray": "3 3", opacity: "0.9",
+          });
+        });
+      }
+
+      // actual dt bars for current mode
+      if (reveal >= 4) {
+        const dtArr = mode === "qp" ? dtQ : dtU;
+        const color = mode === "qp" ? "#3db89a" : "#5b9fd4";
+        const floors = dp.map((d) => d / V_MAX);
+        const maxShow = Math.max(...dtQ, ...dtU, ...floors) * 1.2;
+        const gap = 8;
+        const bw = (x1 - x0 - gap * (H - 1)) / H;
+        dtArr.forEach((d, i) => {
+          const h = (d / maxShow) * 56;
+          const x = x0 + i * (bw + gap);
+          el("rect", {
+            x, y: barY + 56 - h, width: bw, height: h, rx: 3,
+            fill: color, opacity: activeSeg === i ? "0.95" : "0.4",
+          });
+        });
+        el("text", {
+          x: x1, y: barY - 18, "text-anchor": "end", fill: color,
+          "font-size": "11", "font-family": "IBM Plex Mono, monospace",
+        }).textContent = mode === "qp" ? "当前：TimeAxisQP dt" : "当前：Uniform dt";
+      }
+
+      // knots
+      if (reveal >= 1) {
+        for (let i = 0; i <= H; i++) {
+          el("circle", {
+            cx: qx(i), cy: qy(q[i]), r: "6",
+            fill: "#c9a86c", stroke: "#10131a", "stroke-width": "2",
+          });
+          el("text", {
+            x: qx(i), y: qy(q[i]) + 22, "text-anchor": "middle",
+            fill: "#8b93a7", "font-size": "10",
+            "font-family": "IBM Plex Mono, monospace",
+          }).textContent = "w" + i;
+        }
+      }
+
+      // playhead
+      if (reveal >= 4 && (playing || tWall > 0)) {
+        const dtArr = mode === "qp" ? dtQ : dtU;
+        const p = posAt(dtArr, tWall);
+        el("circle", {
+          cx: p.x, cy: p.y, r: "8",
+          fill: "#f0c14a", stroke: "#10131a", "stroke-width": "2",
+          class: "playhead",
+        });
+        el("line", {
+          x1: p.x, y1: p.y, x2: p.x, y2: yBot + 4,
+          stroke: "#f0c14a", "stroke-width": "1", "stroke-dasharray": "3 3", opacity: "0.5",
+        });
+      }
+    }
+
+    function setMode(m) {
+      mode = m;
+      btnU.classList.toggle("active", m === "uniform");
+      btnQ.classList.toggle("active", m === "qp");
+      render();
+    }
+
+    function setNarr(html) {
+      narr.innerHTML = html;
+    }
+
+    function render() {
+      const dtArr = mode === "qp" ? dtQ : dtU;
+      let active = -1;
+      if (reveal >= 4 && tWall > 0) active = posAt(dtArr, tWall).i;
+      drawMain(active);
+      drawBars(barsU, dtU, "#5b9fd4", mode === "uniform" ? active : -1);
+      drawBars(barsQ, dtQ, "#3db89a", mode === "qp" ? active : -1);
+
+      if (reveal >= 4 && tWall > 0) {
+        const p = posAt(dtArr, tWall);
+        const speed = dp[p.i] / (dtArr[p.i] || 1e-9);
+        status.textContent =
+          `${mode === "qp" ? "QP" : "Uni"} · t=${(p.t).toFixed(2)}/${p.total.toFixed(2)}s · seg ${p.i} · |v|≈${speed.toFixed(2)}` +
+          (speed > V_MAX + 1e-6 ? " ⚠>vmax" : " ✓");
+      }
+    }
+
+    function stopPlay() {
+      playing = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      btnPlay.textContent = "播放";
+    }
+
+    function play() {
+      if (reveal < 4) {
+        // Auto-advance stages then play.
+        reveal = 4;
+        setNarr(stages[3].text);
+      }
+      if (playing) {
+        stopPlay();
+        status.textContent = "已暂停";
+        return;
+      }
+      playing = true;
+      btnPlay.textContent = "暂停";
+      if (tWall >= 1) tWall = 0;
+      const dtArr = () => (mode === "qp" ? dtQ : dtU);
+      const total = () => schedule(dtArr())[H];
+      let last = performance.now();
+      // Wall-clock playback: 1 demo-second ≈ 0.55 real seconds for readability.
+      const scale = reduceMotion ? 0.15 : 0.55;
+
+      const tick = (now) => {
+        if (!playing) return;
+        const realDt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        tWall += (realDt * scale) / total();
+        if (tWall >= 1) {
+          tWall = 1;
+          render();
+          const p = posAt(dtArr(), 1);
+          setNarr(
+            `<strong>播完。</strong>${mode === "qp" ? "QP" : "Uniform"} 总时长 ${p.total.toFixed(2)}s。` +
+            (mode === "uniform"
+              ? " 注意中间陡段：匀速扫过时瞬时 |v| 可能顶破 v_max。"
+              : " 陡段被拉长，瞬时 |v| 贴着 v_max；缓段加快补回总时长。") +
+            " 可切换模式再播对比。"
+          );
+          stopPlay();
+          status.textContent = "完成";
+          return;
+        }
+        const p = posAt(dtArr(), tWall);
+        setNarr(
+          `<strong>播放中 · ${mode === "qp" ? "TimeAxisQP" : "Uniform"}。</strong>` +
+          `当前段 s${p.i}：|dp|=${dp[p.i].toFixed(2)}，dt=${dtArr()[p.i].toFixed(3)}s，` +
+          `|v|=|dp|/dt≈${(dp[p.i] / dtArr()[p.i]).toFixed(2)}` +
+          (dp[p.i] / dtArr()[p.i] > V_MAX + 1e-6
+            ? ` <span style="color:#d45d5d">（超过 v_max=${V_MAX}）</span>`
+            : `（≤ v_max=${V_MAX}）`) +
+          "。黄点在固定路径上滑动。"
+        );
+        render();
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    }
+
+    function reset() {
+      stopPlay();
+      tWall = 0;
+      reveal = 0;
+      setNarr("<strong>准备。</strong>点「单步阶段」逐段讲解，或直接「播放」看完整过程。");
+      status.textContent = "待命";
+      render();
+    }
+
+    function stepPhase() {
+      stopPlay();
+      tWall = 0;
+      if (reveal >= 4) {
+        reveal = 1;
+      } else {
+        reveal = Math.min(4, reveal + 1);
+      }
+      const st = stages.find((s) => s.reveal === reveal) || stages[0];
+      setNarr(st.text);
+      status.textContent = `阶段 ${reveal}/4`;
+      render();
+    }
+
+    btnPlay.addEventListener("click", play);
+    btnReset.addEventListener("click", reset);
+    btnStep.addEventListener("click", stepPhase);
+    btnU.addEventListener("click", () => {
+      setMode("uniform");
+      if (reveal >= 4) {
+        setNarr("<strong>Uniform。</strong>每段 dt 相同。路径中间那条大红段扫得很快，|dp|/dt 容易超 v_max。");
+      }
+    });
+    btnQ.addEventListener("click", () => {
+      setMode("qp");
+      if (reveal >= 4) {
+        setNarr("<strong>TimeAxisQP。</strong>陡段 dt 被抬到 ≥ |dp|/v_max；缓段缩短。路点坐标不变，只改时间。");
+      }
+    });
+
+    // First paint: show knots so page isn't empty.
+    reveal = 1;
+    setNarr(stages[0].text);
+    status.textContent = "阶段 1/4 · 可点「单步阶段」或「播放」";
+    render();
+  })();
+  </script>
+</body>
+</html>

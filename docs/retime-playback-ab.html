@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>播放对齐 · A 均匀网格 vs B 非均匀 progress</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #10131a;
+      --bg1: #171c26;
+      --bg2: #1f2633;
+      --ink: #e8ecf4;
+      --muted: #8b93a7;
+      --line: #2c3448;
+      --a: #5b9fd4;
+      --b: #3db89a;
+      --path: #c9a86c;
+      --tick: #f0c14a;
+      --drop: #d45d5d;
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --serif: "IBM Plex Serif", Georgia, serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 0% 0%, #1a2838 0%, transparent 55%),
+        radial-gradient(800px 480px at 100% 10%, #1a3028 0%, transparent 50%),
+        var(--bg0);
+      line-height: 1.55;
+      font-size: 16px;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 44px 20px 88px; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--b); margin: 0 0 10px;
+    }
+    h1 {
+      font-family: var(--serif); font-weight: 600;
+      font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+      margin: 0 0 12px; letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .lede { color: var(--muted); max-width: 40em; margin: 0 0 28px; }
+    h2 { font-family: var(--serif); font-size: 1.25rem; margin: 36px 0 10px; }
+    p { color: var(--muted); margin: 0 0 12px; }
+    code { font-family: var(--mono); font-size: 0.88em; color: var(--tick); }
+    .card {
+      background: color-mix(in srgb, var(--bg1) 92%, transparent);
+      border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 16px 14px; margin: 14px 0 20px;
+    }
+    .grid2 {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+    .pane {
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px; background: var(--bg1);
+    }
+    .pane.a { border-color: color-mix(in srgb, var(--a) 45%, var(--line)); }
+    .pane.b { border-color: color-mix(in srgb, var(--b) 45%, var(--line)); }
+    .pane h3 {
+      margin: 0 0 6px; font-size: 0.95rem; font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pill {
+      font-family: var(--mono); font-size: 10px; padding: 2px 7px;
+      border-radius: 999px; border: 1px solid;
+    }
+    .pill.a { color: var(--a); border-color: var(--a); }
+    .pill.b { color: var(--b); border-color: var(--b); }
+    .pane .sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+
+    svg.stage { width: 100%; height: 190px; display: block; }
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 10px 14px;
+      font-size: 12px; color: var(--muted); margin: 8px 0 0;
+    }
+    .legend i {
+      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      margin-right: 5px; vertical-align: -1px;
+    }
+
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      margin-top: 12px;
+    }
+    button {
+      font-family: var(--font); font-size: 13px; font-weight: 500;
+      border: 1px solid var(--line); background: var(--bg2); color: var(--ink);
+      border-radius: 999px; padding: 7px 14px; cursor: pointer;
+    }
+    button.primary {
+      background: color-mix(in srgb, var(--b) 22%, var(--bg2));
+      border-color: color-mix(in srgb, var(--b) 45%, var(--line));
+      color: #b8f0dc;
+    }
+    button:hover { filter: brightness(1.08); }
+    .status {
+      font-family: var(--mono); font-size: 12px; color: var(--muted);
+      margin-left: auto;
+    }
+
+    .compare {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;
+    }
+    @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } }
+    .cmp {
+      font-size: 0.9rem; color: var(--muted); padding: 10px 12px;
+      border-radius: 8px; border: 1px solid var(--line); background: var(--bg0);
+    }
+    .cmp strong { color: var(--ink); font-weight: 500; }
+    footer {
+      margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+      font-size: 13px; color: var(--muted);
+    }
+    footer a { color: var(--b); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .anim-dot, .playhead { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="eyebrow">fasterVLA · L2 播放对齐</p>
+    <h1>A 均匀网格 vs B 非均匀 progress</h1>
+    <p class="lede">
+      同一条几何路径、同一套非均匀 <code>Δt_i</code>（重定时结果）之后，
+      怎么对齐到更高频的控制拍？下面左右对照播放。
+    </p>
+
+    <div class="card">
+      <div class="legend">
+        <span><i style="background:var(--path)"></i>棕点 = 模型步（路点，队列不重建）</span>
+        <span><i style="background:var(--a)"></i>A：蓝点 = 控制拍队列（已重采样）</span>
+        <span><i style="background:var(--b)"></i>B：绿点 = 控制拍下发值（常在两棕点之间）</span>
+        <span><i style="background:var(--tick)"></i>墙钟「现在」</span>
+      </div>
+      <div class="controls">
+        <button type="button" class="primary" id="btn-play">同步播放</button>
+        <button type="button" id="btn-reset">重置</button>
+        <button type="button" id="btn-a">只看 A</button>
+        <button type="button" id="btn-b">只看 B</button>
+        <span class="status" id="status">待命</span>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <section class="pane a">
+        <h3><span class="pill a">方式 A</span> 重采样到均匀网格</h3>
+        <p class="sub">V2 <code>re_allocate</code>：时间轴上等间隔（控制拍），再 1 拍取 1 个队头</p>
+        <svg class="stage" id="svg-a" viewBox="0 0 440 160" aria-label="方式 A 动画"></svg>
+      </section>
+      <section class="pane b">
+        <h3><span class="pill b">方式 B</span> 非均匀 Δt + 小数 progress</h3>
+        <p class="sub">队列仍是棕点；绿点才是每拍真正下发的值（lerp，多数不落在棕点上）</p>
+        <svg class="stage" id="svg-b" viewBox="0 0 440 160" aria-label="方式 B 动画"></svg>
+      </section>
+    </div>
+
+    <h2>这一拍各自在干什么</h2>
+    <div class="compare">
+      <div class="cmp" id="narr-a">
+        <strong>A</strong>：队列已是控制网格上的离散点；本拍下发 <code>future[0]</code>，整步 pop。
+      </div>
+      <div class="cmp" id="narr-b">
+        <strong>B</strong>：本拍推进小数 progress；下发 = 相邻两棕点的线性插值（通常不是模型步）。
+      </div>
+    </div>
+
+    <h2>B 的插值到底是什么</h2>
+    <div class="card">
+      <p>
+        控制环每拍固定 <code>dt_ctrl</code>（如 10 ms）调用：
+      </p>
+      <p style="font-family:var(--mono);font-size:13px;color:var(--ink);margin:8px 0 12px">
+        advance(dt_ctrl) → progress 变成小数（如 2.37）<br />
+        reference() → i0=⌊p⌋, frac=p−i0 →
+        <code>(1−frac)·w[i0] + frac·w[i0+1]</code>
+      </p>
+      <p>
+        所以<strong style="color:var(--ink)">下发给 tracker 的往往不是黄/棕模型步</strong>，
+        而是两模型步之间的关节空间线性混合点。
+        只有 progress 恰好落在整数上时，下发值才等于某个模型步。
+      </p>
+      <p style="margin:0">
+        图中 B：路径上的<strong style="color:var(--b)">绿点 = 各控制拍的下发值</strong>；
+        棕点只是插值两端的「标尺」，队列不重建。
+      </p>
+    </div>
+
+    <h2>为什么感觉和 A 没区别？</h2>
+    <div class="card">
+      <p>
+        <strong style="color:var(--ink)">因为静态计划下，每拍下发的关节值本来就一样。</strong>
+        同一条几何路径 + 同一套墙钟采样时刻 + 同一种线性插值 →
+        A 预先算进蓝点队列的值，和 B 每拍现场 lerp 出来的绿点，是同一个数。
+        图里左右游标重合，不是画错了。
+      </p>
+      <p>
+        真正不同的是<strong style="color:var(--ink)">尺子存在哪、合并怎么做</strong>：
+      </p>
+      <ul style="color:var(--muted);margin:0 0 12px;padding-left:1.2em">
+        <li><strong style="color:var(--ink)">A</strong>：播放队列改成控制网格；「第几个模型步」被冲掉 → RTC / merge 的 \(d̂\)、prefix 不好对齐。</li>
+        <li><strong style="color:var(--ink)">B</strong>：队列仍是 H 个棕点 + <code>step_dt</code>；progress 是小数模型步 →
+          <code>prefix(d̂)</code> / <code>merge</code> 天然按模型步接。</li>
+        <li>QP 只改 <code>step_dt</code> 时：B 改数组即可；A 要整段蓝点队列重算。</li>
+      </ul>
+      <p style="margin:0">
+        一句话：<strong style="color:var(--ink)">开环跟轨迹时 A≈B；异步换段 / RTC 时才必须用 B 的模型步尺子。</strong>
+      </p>
+    </div>
+
+    <footer>
+      相关：<a href="plan-buffer.html">PlanBuffer 说明</a> ·
+      <a href="deploy-g2-plan.md">deploy-g2-plan §4</a> ·
+      V2 <code>optimizer.re_allocate</code> / 本仓 <code>PlanBuffer.reference</code>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const status = document.getElementById("status");
+      const narrA = document.getElementById("narr-a");
+      const narrB = document.getElementById("narr-b");
+
+      // 6 model knots on a 1D "path" (y = joint), with non-uniform dt (ms metaphor).
+      const knots = [
+        { x: 40, y: 110 },
+        { x: 100, y: 70 },
+        { x: 150, y: 40 },   // large move → longer dt
+        { x: 210, y: 55 },
+        { x: 280, y: 95 },
+        { x: 360, y: 50 },
+      ];
+      // Non-uniform segment durations (relative). Mid segment slower.
+      const segDt = [1.0, 1.0, 2.2, 1.0, 1.4];
+      const totalT = segDt.reduce((a, b) => a + b, 0);
+
+      function cumTimes() {
+        const t = [0];
+        for (const d of segDt) t.push(t[t.length - 1] + d);
+        return t;
+      }
+      const T = cumTimes();
+
+      // Uniform grid: sample path at equal wall time → new discrete points (A).
+      const ctrlN = 12;
+      function pathAtWall(u) {
+        // u in [0, totalT]
+        const uu = Math.max(0, Math.min(totalT, u));
+        let i = 0;
+        while (i < segDt.length - 1 && uu > T[i + 1]) i++;
+        const span = segDt[i];
+        const f = span > 0 ? (uu - T[i]) / span : 0;
+        const a = knots[i], b = knots[i + 1];
+        return {
+          x: a.x + (b.x - a.x) * f,
+          y: a.y + (b.y - a.y) * f,
+          i, f,
+        };
+      }
+      const uniformPts = [];
+      for (let k = 0; k <= ctrlN; k++) {
+        const u = (k / ctrlN) * totalT;
+        uniformPts.push(pathAtWall(u));
+      }
+
+      const TIME_Y = 168;
+      const X0 = 40, X1 = 360;
+
+      function wallToX(u) {
+        return X0 + (u / totalT) * (X1 - X0);
+      }
+
+      function drawBase(svg, colorAccent, mode) {
+        svg.innerHTML = "";
+        svg.setAttribute("viewBox", "0 0 440 190");
+        const ns = "http://www.w3.org/2000/svg";
+        function el(name, attrs) {
+          const e = document.createElementNS(ns, name);
+          for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+          return e;
+        }
+        // wall-time axis (bottom)
+        svg.appendChild(el("line", { x1: 30, y1: TIME_Y, x2: 410, y2: TIME_Y, stroke: "#2c3448", "stroke-width": 1 }));
+        const axisLab = el("text", {
+          x: 220, y: 186, fill: "#8b93a7", "font-size": 9,
+          "font-family": "IBM Plex Mono, monospace", "text-anchor": "middle",
+        });
+        axisLab.textContent = "墙钟时间 →";
+        svg.appendChild(axisLab);
+
+        // path polyline through model knots (geometry space, top)
+        const d = knots.map((p, i) => (i ? "L" : "M") + p.x + "," + p.y).join(" ");
+        svg.appendChild(el("path", { d, fill: "none", stroke: "#c9a86c", "stroke-width": 2, opacity: 0.85 }));
+        knots.forEach((p, i) => {
+          // map knot to wall time for a faint drop line
+          const tx = wallToX(T[i]);
+          svg.appendChild(el("line", {
+            x1: p.x, y1: p.y, x2: tx, y2: TIME_Y,
+            stroke: "#c9a86c", "stroke-width": 1, opacity: "0.25", "stroke-dasharray": "2 3",
+          }));
+          svg.appendChild(el("circle", { cx: p.x, cy: p.y, r: 5, fill: "#c9a86c" }));
+          const lab = el("text", {
+            x: p.x, y: p.y - 10, fill: "#8b93a7", "font-size": 9,
+            "font-family": "IBM Plex Mono, monospace", "text-anchor": "middle",
+          });
+          lab.textContent = String(i);
+          svg.appendChild(lab);
+          // model-step markers on time axis (uneven!)
+          svg.appendChild(el("circle", {
+            cx: tx, cy: TIME_Y, r: 3.5, fill: "#c9a86c", opacity: "0.9",
+          }));
+        });
+
+        const ph = el("line", {
+          id: svg.id + "-ph", x1: X0, y1: 16, x2: X0, y2: TIME_Y + 6,
+          stroke: "#f0c14a", "stroke-width": 2, "stroke-dasharray": "4 3",
+        });
+        svg.appendChild(ph);
+        const cursor = el("circle", {
+          id: svg.id + "-cur", cx: knots[0].x, cy: knots[0].y, r: 7,
+          fill: colorAccent, stroke: "#e8ecf4", "stroke-width": 1.5,
+        });
+        svg.appendChild(cursor);
+        return { ph, cursor, mode };
+      }
+
+      const svgA = document.getElementById("svg-a");
+      const svgB = document.getElementById("svg-b");
+      drawBase(svgA, "#5b9fd4", "a");
+      drawBase(svgB, "#3db89a", "b");
+
+      // A: blue dots ONLY on time axis, equal spacing; stems to path samples
+      (function () {
+        const ns = "http://www.w3.org/2000/svg";
+        uniformPts.forEach((p, i) => {
+          const u = (i / ctrlN) * totalT;
+          const tx = wallToX(u);
+          const stem = document.createElementNS(ns, "line");
+          stem.setAttribute("x1", String(tx));
+          stem.setAttribute("y1", String(TIME_Y));
+          stem.setAttribute("x2", String(p.x));
+          stem.setAttribute("y2", String(p.y));
+          stem.setAttribute("stroke", "#5b9fd4");
+          stem.setAttribute("stroke-width", "1");
+          stem.setAttribute("opacity", "0.35");
+          svgA.appendChild(stem);
+          // faint sample on path
+          const onPath = document.createElementNS(ns, "circle");
+          onPath.setAttribute("cx", String(p.x));
+          onPath.setAttribute("cy", String(p.y));
+          onPath.setAttribute("r", "2.5");
+          onPath.setAttribute("fill", "#5b9fd4");
+          onPath.setAttribute("opacity", "0.55");
+          svgA.appendChild(onPath);
+          // equal-spaced control ticks on TIME axis
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", String(tx));
+          c.setAttribute("cy", String(TIME_Y));
+          c.setAttribute("r", "4");
+          c.setAttribute("fill", "#5b9fd4");
+          c.setAttribute("opacity", "0.95");
+          c.setAttribute("class", "u-pt");
+          c.dataset.i = String(i);
+          svgA.appendChild(c);
+        });
+        const t = document.createElementNS(ns, "text");
+        t.setAttribute("x", "220");
+        t.setAttribute("y", "14");
+        t.setAttribute("fill", "#5b9fd4");
+        t.setAttribute("font-size", "10");
+        t.setAttribute("font-family", "IBM Plex Mono, monospace");
+        t.setAttribute("text-anchor", "middle");
+        t.textContent = "蓝点在时间轴上等距 = 控制拍；棕点仍是模型步";
+        svgA.appendChild(t);
+      })();
+
+      // B: green = commanded samples (lerp between brown knots); ticks on time axis.
+      (function () {
+        const ns = "http://www.w3.org/2000/svg";
+        // Active lerp segment highlight (updated during play)
+        const segHL = document.createElementNS(ns, "line");
+        segHL.setAttribute("id", "b-seg-hl");
+        segHL.setAttribute("x1", String(knots[0].x));
+        segHL.setAttribute("y1", String(knots[0].y));
+        segHL.setAttribute("x2", String(knots[1].x));
+        segHL.setAttribute("y2", String(knots[1].y));
+        segHL.setAttribute("stroke", "#3db89a");
+        segHL.setAttribute("stroke-width", "4");
+        segHL.setAttribute("opacity", "0");
+        segHL.setAttribute("stroke-linecap", "round");
+        svgB.appendChild(segHL);
+
+        for (let i = 0; i <= ctrlN; i++) {
+          const u = (i / ctrlN) * totalT;
+          const pos = pathAtWall(u);
+          const tx = wallToX(u);
+          // stem: time tick → commanded point on path
+          const stem = document.createElementNS(ns, "line");
+          stem.setAttribute("x1", String(tx));
+          stem.setAttribute("y1", String(TIME_Y));
+          stem.setAttribute("x2", String(pos.x));
+          stem.setAttribute("y2", String(pos.y));
+          stem.setAttribute("stroke", "#3db89a");
+          stem.setAttribute("stroke-width", "1");
+          stem.setAttribute("opacity", "0.3");
+          stem.setAttribute("class", "b-stem");
+          stem.dataset.i = String(i);
+          svgB.appendChild(stem);
+          // commanded sample ON PATH (often between brown knots)
+          const onPath = document.createElementNS(ns, "circle");
+          onPath.setAttribute("cx", String(pos.x));
+          onPath.setAttribute("cy", String(pos.y));
+          onPath.setAttribute("r", "3.5");
+          onPath.setAttribute("fill", "#3db89a");
+          onPath.setAttribute("opacity", "0.9");
+          onPath.setAttribute("class", "b-cmd");
+          onPath.dataset.i = String(i);
+          onPath.dataset.seg = String(pos.i);
+          onPath.dataset.f = String(pos.f.toFixed(2));
+          svgB.appendChild(onPath);
+          // equal-spaced control ticks on TIME axis
+          const tick = document.createElementNS(ns, "line");
+          tick.setAttribute("x1", String(tx));
+          tick.setAttribute("y1", String(TIME_Y - 7));
+          tick.setAttribute("x2", String(tx));
+          tick.setAttribute("y2", String(TIME_Y + 7));
+          tick.setAttribute("stroke", "#3db89a");
+          tick.setAttribute("stroke-width", "2");
+          tick.setAttribute("opacity", "0.85");
+          tick.setAttribute("class", "b-tick");
+          tick.dataset.i = String(i);
+          svgB.appendChild(tick);
+          const c = document.createElementNS(ns, "circle");
+          c.setAttribute("cx", String(tx));
+          c.setAttribute("cy", String(TIME_Y));
+          c.setAttribute("r", "3");
+          c.setAttribute("fill", "#3db89a");
+          c.setAttribute("class", "b-tick-dot");
+          c.dataset.i = String(i);
+          svgB.appendChild(c);
+        }
+        const t = document.createElementNS(ns, "text");
+        t.setAttribute("x", "220");
+        t.setAttribute("y", "14");
+        t.setAttribute("fill", "#3db89a");
+        t.setAttribute("font-size", "10");
+        t.setAttribute("font-family", "IBM Plex Mono, monospace");
+        t.setAttribute("text-anchor", "middle");
+        t.textContent = "绿点=下发值(lerp)；多数不落在棕点上";
+        svgB.appendChild(t);
+      })();
+
+      let timers = [];
+      let playing = false;
+
+      function clearTimers() {
+        timers.forEach(clearTimeout);
+        timers = [];
+      }
+
+      function setPlayhead(which, wallU, pos) {
+        const x = wallToX(wallU);
+        const ph = document.getElementById(which + "-ph");
+        const cur = document.getElementById(which + "-cur");
+        if (ph) {
+          ph.setAttribute("x1", String(x));
+          ph.setAttribute("x2", String(x));
+        }
+        if (cur && pos) {
+          cur.setAttribute("cx", String(pos.x));
+          cur.setAttribute("cy", String(pos.y));
+        }
+      }
+
+      function highlightUniform(idx) {
+        svgA.querySelectorAll(".u-pt").forEach((c) => {
+          const i = Number(c.dataset.i);
+          c.setAttribute("r", i === idx ? "6" : "3.5");
+          c.setAttribute("opacity", i < idx ? "0.35" : i === idx ? "1" : "0.85");
+        });
+      }
+
+      function highlightBTicks(idx) {
+        svgB.querySelectorAll(".b-tick").forEach((c) => {
+          const i = Number(c.dataset.i);
+          c.setAttribute("stroke-width", i === idx ? "3.5" : "2");
+          c.setAttribute("opacity", i === idx ? "1" : i < idx ? "0.35" : "0.85");
+        });
+        svgB.querySelectorAll(".b-tick-dot").forEach((c) => {
+          const i = Number(c.dataset.i);
+          c.setAttribute("r", i === idx ? "5" : "3");
+          c.setAttribute("opacity", i === idx ? "1" : i < idx ? "0.35" : "0.85");
+        });
+        svgB.querySelectorAll(".b-cmd").forEach((c) => {
+          const i = Number(c.dataset.i);
+          c.setAttribute("r", i === idx ? "6" : "3.5");
+          c.setAttribute("opacity", i === idx ? "1" : i < idx ? "0.35" : "0.85");
+          c.setAttribute("stroke", i === idx ? "#e8ecf4" : "none");
+          c.setAttribute("stroke-width", i === idx ? "1.5" : "0");
+        });
+        svgB.querySelectorAll(".b-stem").forEach((c) => {
+          const i = Number(c.dataset.i);
+          c.setAttribute("opacity", i === idx ? "0.7" : i < idx ? "0.12" : "0.3");
+        });
+        // Highlight the brown-knot segment currently being lerped
+        const segHL = document.getElementById("b-seg-hl");
+        if (segHL && idx >= 0 && idx <= ctrlN) {
+          const pos = pathAtWall((idx / ctrlN) * totalT);
+          const a = knots[pos.i], b = knots[Math.min(pos.i + 1, knots.length - 1)];
+          segHL.setAttribute("x1", String(a.x));
+          segHL.setAttribute("y1", String(a.y));
+          segHL.setAttribute("x2", String(b.x));
+          segHL.setAttribute("y2", String(b.y));
+          segHL.setAttribute("opacity", "0.55");
+        } else if (segHL) {
+          segHL.setAttribute("opacity", "0");
+        }
+      }
+
+      function reset() {
+        clearTimers();
+        playing = false;
+        setPlayhead("svg-a", 0, uniformPts[0]);
+        setPlayhead("svg-b", 0, knots[0]);
+        highlightUniform(-1);
+        highlightBTicks(-1);
+        status.textContent = "已重置";
+        narrA.innerHTML = "<strong>A</strong>：蓝点=控制拍队列；本拍取队头并 pop。";
+        narrB.innerHTML = "<strong>B</strong>：下发值 = 两棕点线性插值；多数拍<strong>不是</strong>模型步。";
+      }
+
+      function after(ms, fn) {
+        if (reduced) { fn(); return; }
+        timers.push(setTimeout(fn, ms));
+      }
+
+      function playA(onDone) {
+        let k = 0;
+        function step() {
+          if (!playing && onDone !== playBothStep) return;
+          if (k > ctrlN) { if (onDone) onDone(); return; }
+          const u = (k / ctrlN) * totalT;
+          setPlayhead("svg-a", u, uniformPts[k]);
+          highlightUniform(k);
+          narrA.innerHTML = `<strong>A · 拍 ${k}/${ctrlN}</strong>：取均匀队列第 ${k} 点并 pop；不在原模型步 ${uniformPts[k].i}→${uniformPts[k].i + 1} 之间再插。`;
+          status.textContent = `A 播放中 · k=${k}`;
+          k++;
+          after(220, step);
+        }
+        step();
+      }
+
+      function playB(onDone) {
+        // Step by control ticks (same grid as A), show interpolation between model knots.
+        let k = 0;
+        function step() {
+          if (!playing && onDone !== playBothStep) return;
+          if (k > ctrlN) { if (onDone) onDone(); return; }
+          const u = (k / ctrlN) * totalT;
+          const pos = pathAtWall(u);
+          setPlayhead("svg-b", u, pos);
+          highlightBTicks(k);
+          const pct = (pos.f * 100).toFixed(0);
+          const onKnot = pos.f < 0.02 || pos.f > 0.98;
+          narrB.innerHTML = `<strong>B · 控制拍 ${k}/${ctrlN}</strong>：` +
+            `<code>progress≈${(pos.i + pos.f).toFixed(2)}</code> → ` +
+            `<code>(1−${pct}%)·w[${pos.i}] + ${pct}%·w[${pos.i + 1}]</code>` +
+            (onKnot
+              ? `；恰好落在模型步附近。`
+              : `；下发的绿点<strong>不在</strong>棕点上，是中间插值。`);
+          status.textContent = `B 拍 ${k} · lerp w[${pos.i}]↔w[${pos.i + 1}] f=${pct}%`;
+          k++;
+          after(220, step);
+        }
+        step();
+      }
+
+      let bothPhase = "a";
+      function playBothStep() {
+        // used only as sentinel; real sync play below
+      }
+
+      function playBoth() {
+        clearTimers();
+        playing = true;
+        reset();
+        playing = true;
+        status.textContent = "同步播放…";
+        // Same control-tick grid on both sides
+        let k = 0;
+        function step() {
+          if (!playing) return;
+          if (k > ctrlN) {
+            playing = false;
+            status.textContent = "播放结束";
+            return;
+          }
+          const u = (k / ctrlN) * totalT;
+          const pos = pathAtWall(u);
+          setPlayhead("svg-a", u, uniformPts[k]);
+          highlightUniform(k);
+          setPlayhead("svg-b", u, pos);
+          highlightBTicks(k);
+          const pct = (pos.f * 100).toFixed(0);
+          narrA.innerHTML = `<strong>A · 拍 ${k}</strong>：直接取重采样队列第 ${k} 点（蓝）。`;
+          narrB.innerHTML = `<strong>B · 拍 ${k}</strong>：` +
+            `<code>ref = (1−f)·w[${pos.i}] + f·w[${pos.i + 1}]</code>（f=${pct}%）；` +
+            `绿点才是下发值，棕点只是插值两端。`;
+          status.textContent = `控制拍 ${k}/${ctrlN} · B lerp f=${pct}%`;
+          k++;
+          after(220, step);
+        }
+        after(200, step);
+      }
+
+      document.getElementById("btn-play").addEventListener("click", () => {
+        playing = true;
+        playBoth();
+      });
+      document.getElementById("btn-reset").addEventListener("click", () => {
+        playing = false;
+        reset();
+      });
+      document.getElementById("btn-a").addEventListener("click", () => {
+        playing = true;
+        clearTimers();
+        highlightUniform(-1);
+        setPlayhead("svg-b", 0, knots[0]);
+        playA(() => { playing = false; status.textContent = "A 结束"; });
+      });
+      document.getElementById("btn-b").addEventListener("click", () => {
+        playing = true;
+        clearTimers();
+        highlightUniform(-1);
+        setPlayhead("svg-a", 0, uniformPts[0]);
+        playB(() => { playing = false; status.textContent = "B 结束"; });
+      });
+
+      reset();
+    })();
+  </script>
+</body>
+</html>

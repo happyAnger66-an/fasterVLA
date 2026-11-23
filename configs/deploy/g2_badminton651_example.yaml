@@ -1,0 +1,71 @@
+# Example deploy recipe (schema docs: docs/deploy-config.md).
+# Today: use as reference; CLI still drives live runs.
+# kappa / retimer constraints map to TimeAxisQPConfig + InferenceLoopConfig.
+
+meta:
+  name: g2_badminton651_example
+  robot_aid: G2A0004C205445
+
+run:
+  mode: shadow
+  duration_s: 60.0
+  results_dir: results
+  flush_every_s: 30.0
+  no_trace: false
+
+policy:
+  host: 10.42.1.201
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+  policy_fps: 30.0
+  horizon: 30
+  action_dim: 24
+
+# --- Speed-up knobs ---
+speed:
+  kappa: 1.2
+  kappa_max: 1.5
+  kappa_min: 1.0
+
+# --- Time axis: uniform | qp ---
+retimer:
+  type: qp
+  dt_min_s: 0.015
+  dt_max_s: 0.08
+  lambda_time: 0.1
+  lambda_acc: 1.0
+  # null = no extra arm speed cap; or scalar / length-14 list (rad/s)
+  v_max_rad_s: null
+  v_max_from_lag: false
+  lag_tau_s: 0.057
+  lag_gain: 0.25
+  lag_max_lead_rad: 0.06
+  buffer_window_enabled: false
+  prefix_frames: 4
+  buffer_frames: 4
+  r2r_default_ms: 100.0
+  buffer_margin_ms: 20.0
+  r2r_window: 30
+  solver: active_set
+  calibrate_iters: 8
+
+inference:
+  control_hz: 100.0
+  rtc_mode: INPAINT
+  t_infer_min_s: 0.0
+  t_switch_min_s: 0.0
+  latency_margin_ms: 10.0
+  cold_start_latency_ms: 100.0
+  latency_window: 32
+  use_lead_tracker: true
+  track_warn_threshold_rad: 0.10
+
+lead_tracker:
+  tau_s: 0.057
+  gain: 0.25
+  max_lead_rad: 0.06
+  lead_smooth_tau_s: 0.040
+  hold_during_blend: true
+
+robot:
+  sdk_root: /home/agi/app/gdk
