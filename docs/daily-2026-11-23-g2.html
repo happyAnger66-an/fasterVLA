@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>fasterVLA G2 日报 2026-11-23</title>
+<style>
+:root {
+  --bg:#f6f4ef; --card:#fffdf8; --ink:#1c1916; --muted:#6b645c;
+  --line:#ddd4c6; --accent:#0f6b5c; --warn:#9a3412; --hi:#fff3d6;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:linear-gradient(180deg,#efe8dc 0%, var(--bg) 240px);
+  color:var(--ink); font:15px/1.55 var(--sans);
+}
+main { max-width:1180px; margin:0 auto; padding:28px 18px 64px; }
+h1 { font-size:1.7rem; margin:0 0 6px; letter-spacing:-0.02em; }
+h2 { font-size:1.15rem; margin:28px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+.sub { color:var(--muted); margin:0 0 18px; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:16px 0 8px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+.card b { display:block; font-size:1.25rem; color:var(--accent); }
+.card span { color:var(--muted); font-size:0.85rem; }
+.note, .box { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:10px 0; }
+.box.warn { border-color:#e7b6a0; background:#fff7f2; }
+.box.ok { border-color:#a7d4c8; background:#f2fbf8; }
+ul { margin:8px 0 0 18px; padding:0; }
+li { margin:4px 0; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; background:var(--card); }
+th, td { border:1px solid var(--line); padding:6px 7px; text-align:right; white-space:nowrap; }
+th:nth-child(1), td:nth-child(1),
+th:nth-child(2), td:nth-child(2),
+th:nth-child(3), td:nth-child(3),
+th:nth-child(4), td:nth-child(4),
+th:nth-child(5), td:nth-child(5),
+th:nth-child(6), td:nth-child(6) { text-align:left; }
+th { background:#efe7da; position:sticky; top:0; z-index:1; }
+tr.hi { background:var(--hi); }
+code { font-family:var(--mono); font-size:0.92em; }
+.scroll { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+.footer { margin-top:28px; color:var(--muted); font-size:0.85rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>fasterVLA · G2 真机日报</h1>
+<p class="sub">日期 2026-11-23 · 机器 agi@g2s · 共统计 57 条有效 run · 数据来自 <code>results/robot-live-20261123-*</code></p>
+
+<div class="cards">
+  <div class="card"><b>κ 1.0→2.0</b><span>uniform 加速可感</span></div>
+  <div class="card"><b>ZP@3Hz + pchip</b><span>抖基本消除</span></div>
+  <div class="card"><b>empty≈0</b><span>高κ推理跟得上</span></div>
+  <div class="card"><b>推荐 κ≈1.8–1.9</b><span>lead + 4+4</span></div>
+</div>
+
+<h2>1. 今日结论</h2>
+<div class="box ok">
+<ul>
+<li><b>路径平滑有效</b>：合块节流（4+4）+ ZP DCT@3Hz + pchip 后，κ=1 体感几乎不抖。</li>
+<li><b>均匀加速可用</b>：uniform κ=1.2→1.7→1.9 速度可感；默认 <code>kappa_max</code> 已提到 2.0。</li>
+<li><b>推理不是瓶颈</b>：高κ下 empty/starved 多为 0，剩余帧 &gt;14，r2r≈29ms，推理占空比约 15–25%。</li>
+<li><b>Lead 有利于贴轨</b>：none 在高κ下体感跟随变差（植物滞后）；lead 补 τ 后更快更贴。</li>
+<li><b>8+8 在 κ≥1.9 易左右摆</b>：臂跟踪/交接参考跳明显差于 4+4（以空间跳变与体感为准）。</li>
+</ul>
+</div>
+
+<h2>2. 关键对照（长跑优先）</h2>
+<div class="scroll">
+<table>
+<thead>
+<tr><th>配置</th><th>时间</th><th>run</th><th>合块Hz</th><th>臂跟踪p95<br/>(mrad)</th><th>&gt;100mrad</th><th>交接参考跳<br/>p95</th><th>命令速度<br/>p95</th><th>empty/starved</th></tr>
+</thead>
+<tbody>
+<tr><td>1.0 none 无ZP基线</td><td></td><td><code>93149-3d5033</code></td><td>6.00</td><td>435</td><td>0.360</td><td>22</td><td>0.96</td><td>0/0</td></tr>
+<tr><td>1.0 none ZP+4+4</td><td></td><td><code>04009-4c062f</code></td><td>5.97</td><td>65</td><td>0.008</td><td>43</td><td>0.89</td><td>0/0</td></tr>
+<tr><td>1.4 none 4+4</td><td></td><td><code>01730-561ca8</code></td><td>7.82</td><td>103</td><td>0.052</td><td>16</td><td>1.27</td><td>0/0</td></tr>
+<tr><td>1.5 none 4+4</td><td></td><td><code>01911-b410f5</code></td><td>8.50</td><td>78</td><td>0.019</td><td>12</td><td>1.03</td><td>0/0</td></tr>
+<tr><td>1.7 none 8+8</td><td></td><td><code>02340-1115ee</code></td><td>5.31</td><td>109</td><td>0.059</td><td>19</td><td>1.23</td><td>0/0</td></tr>
+<tr><td>1.8 lead 4+4</td><td></td><td><code>03824-edd199</code></td><td>9.27</td><td>498</td><td>0.236</td><td>40</td><td>2.65</td><td>0/0</td></tr>
+<tr><td>1.8 lead 8+8</td><td></td><td><code>03132-f0c0b5</code></td><td>5.63</td><td>255</td><td>0.251</td><td>45</td><td>2.41</td><td>0/0</td></tr>
+<tr><td>1.9 lead 4+4</td><td></td><td><code>04203-4664f6</code></td><td>9.34</td><td>97</td><td>0.044</td><td>13</td><td>1.22</td><td>0/0</td></tr>
+<tr><td>1.9 lead 8+8</td><td></td><td><code>04534-288d84</code></td><td>5.63</td><td>154</td><td>0.137</td><td>25</td><td>1.67</td><td>0/0</td></tr>
+<tr><td>2.0 lead 8+8</td><td></td><td><code>04725-8f630d</code></td><td>5.94</td><td>198</td><td>0.194</td><td>27</td><td>1.97</td><td>0/0</td></tr>
+<tr><td>2.0 lead 4+4</td><td></td><td><code>04847-f16c6e</code></td><td>10.28</td><td>219</td><td>0.231</td><td>24</td><td>2.35</td><td>0/0</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>3. 当前问题</h2>
+<div class="box warn">
+<ol>
+<li><b>合块交接跳变</b>：高κ下 merge 处参考/命令空间跳变更大，8+8 尤甚 → 犹豫/左右蹭（以跟踪/参考跳与体感为准）。</li>
+<li><b>高κ + 大 prefix</b>：2.0·lead·8+8 臂跟踪 p95≈198mrad、交接命令跳≈32mrad；2.0·4+4 合块更密、跟踪更好，需结合体感。</li>
+<li><b>none 贴轨变差</b>：无超前时实测落后参考；高速下更明显，不宜作为高κ默认 tracker。</li>
+<li><b>MPC 曾顶软限位</b>：早期 κ=1.1·mpc 因 ±π 盒松于 GDK 限位 abort；已改为 GDK 限位 + 下发前 clip。</li>
+<li><b>双进程干扰</b>：今日多次「摆动」实为其它控制进程抢臂，分析前需确认单 controller。</li>
+<li><b>QP 时间轴</b>：体感犹豫，且与「加速后合块现象」易混淆；加速主路径暂用 uniform。</li>
+</ol>
+</div>
+
+<h2>4. 下一步优化计划</h2>
+<div class="box">
+<ol>
+<li><b>默认工作点固化</b>：<code>lead + κ=1.8~1.9 + prefix/buffer=4/4 + ZP@3Hz + pchip + uniform + hold-gripper</code>；写入文档/示例命令。</li>
+<li><b>合块策略</b>：高κ不要盲目加大 prefix；优先 4+4。可选实现 <code>prefix ≈ f(κ)</code> 或墙钟目标合块间隔（例如 ≥120ms）。</li>
+<li><b>Lead 可调</b>：暴露 <code>--lead-gain / --max-lead</code>，在贴轨与少摆之间折中。</li>
+<li><b>交接平滑</b>：移植老栈 velocity-matched handoff / 降低合块处 cmd 跳变（治 8+8 空间跳变）。</li>
+<li><b>跨 chunk ZP</b>：试 <code>zero_phase_dct_cross</code> 减轻交接锯齿。</li>
+<li><b>QP</b>：补 prefix 时长锁定后再做 κ A/B；当前不作为加速默认。</li>
+<li><b>工程</b>：execute 启动检测/提示其它控制进程；日报指标脚本入库便于明日复用。</li>
+<li><b>提交</b>：本地未 commit 的 4+4/ZP/pchip/限位/kappa_max=2.0 等改动择机入库。</li>
+</ol>
+</div>
+
+<h2>5. ZP 之后加速扫参明细</h2>
+<p class="sub">高亮行为今日最新 <b>2.0 lead 4+4</b>（f16c6e）。单位：跟踪/跳变为 mrad，速度为 rad/s。</p>
+<div class="scroll">
+<table>
+<thead>
+<tr><th>时间</th><th>run</th><th>κ</th><th>tracker</th><th>p/b</th><th>filter</th><th>dur</th><th>合块Hz</th><th>跟踪p95</th><th>&gt;100</th><th>参考跳</th><th>速度</th><th>empty</th><th>starved</th><th>rem↓</th><th>r2r</th></tr>
+</thead>
+<tbody>
+<tr><td></td><td><code>95009-02a8af</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>18</td><td>5.91</td><td>72</td><td>0.025</td><td>13</td><td>0.91</td><td>0</td><td>0</td><td>23.1</td><td>28</td></tr>
+<tr><td></td><td><code>95302-82eb72</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>18</td><td>5.90</td><td>59</td><td>0.018</td><td>10</td><td>0.73</td><td>0</td><td>0</td><td>23.1</td><td>30</td></tr>
+<tr><td></td><td><code>95504-f7dfc6</code></td><td>1.0</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>20</td><td>5.92</td><td>51</td><td>0.023</td><td>8</td><td>0.69</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>95543-66219e</code></td><td>1.0</td><td>mpc</td><td>4/4</td><td>zero_phase_dct</td><td>29</td><td>5.80</td><td>68</td><td>0.006</td><td>9</td><td>0.83</td><td>0</td><td>0</td><td>22.8</td><td>36</td></tr>
+<tr><td></td><td><code>00533-a11bb3</code></td><td>1.1</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>30</td><td>6.37</td><td>76</td><td>0.034</td><td>11</td><td>0.89</td><td>0</td><td>0</td><td>22.8</td><td>28</td></tr>
+<tr><td></td><td><code>00644-cf2da6</code></td><td>1.1</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>30</td><td>6.20</td><td>688</td><td>0.747</td><td>31</td><td>2.49</td><td>0</td><td>0</td><td>21.9</td><td>29</td></tr>
+<tr><td></td><td><code>00856-d882f0</code></td><td>1.2</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>30</td><td>6.70</td><td>212</td><td>0.133</td><td>29</td><td>1.97</td><td>0</td><td>0</td><td>22.6</td><td>28</td></tr>
+<tr><td></td><td><code>00956-d38994</code></td><td>1.2</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>54</td><td>6.69</td><td>1632</td><td>0.682</td><td>41</td><td>4.10</td><td>0</td><td>0</td><td>19.8</td><td>29</td></tr>
+<tr><td></td><td><code>01116-cad581</code></td><td>1.2</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>51</td><td>6.70</td><td>125</td><td>0.062</td><td>17</td><td>1.33</td><td>0</td><td>0</td><td>22.6</td><td>28</td></tr>
+<tr><td></td><td><code>01345-e77e96</code></td><td>1.3</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>31</td><td>7.21</td><td>70</td><td>0.025</td><td>12</td><td>0.93</td><td>0</td><td>0</td><td>22.4</td><td>29</td></tr>
+<tr><td></td><td><code>01452-60becc</code></td><td>1.1</td><td>mpc</td><td>4/4</td><td>zero_phase_dct</td><td>27</td><td>6.03</td><td>292</td><td>0.159</td><td>27</td><td>2.51</td><td>0</td><td>0</td><td>20.1</td><td>43</td></tr>
+<tr><td></td><td><code>01605-35f31a</code></td><td>1.4</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>7.80</td><td>89</td><td>0.035</td><td>14</td><td>1.10</td><td>0</td><td>0</td><td>22.3</td><td>29</td></tr>
+<tr><td></td><td><code>01730-561ca8</code></td><td>1.4</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>7.82</td><td>103</td><td>0.052</td><td>16</td><td>1.27</td><td>0</td><td>0</td><td>22.3</td><td>29</td></tr>
+<tr><td></td><td><code>01911-b410f5</code></td><td>1.5</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>51</td><td>8.50</td><td>78</td><td>0.019</td><td>12</td><td>1.03</td><td>0</td><td>0</td><td>22.3</td><td>29</td></tr>
+<tr><td></td><td><code>02239-5df278</code></td><td>1.5</td><td>none</td><td>8/8</td><td>zero_phase_dct</td><td>35</td><td>4.82</td><td>98</td><td>0.048</td><td>14</td><td>1.16</td><td>0</td><td>0</td><td>18.2</td><td>30</td></tr>
+<tr><td></td><td><code>02340-1115ee</code></td><td>1.7</td><td>none</td><td>8/8</td><td>zero_phase_dct</td><td>44</td><td>5.31</td><td>109</td><td>0.059</td><td>19</td><td>1.23</td><td>0</td><td>0</td><td>17.8</td><td>30</td></tr>
+<tr><td></td><td><code>02510-f37961</code></td><td>1.8</td><td>none</td><td>8/8</td><td>zero_phase_dct</td><td>19</td><td>5.62</td><td>179</td><td>0.156</td><td>25</td><td>1.89</td><td>0</td><td>0</td><td>17.7</td><td>28</td></tr>
+<tr><td></td><td><code>02724-be0830</code></td><td>1.8</td><td>none</td><td>12/12</td><td>zero_phase_dct</td><td>43</td><td>3.86</td><td>181</td><td>0.161</td><td>28</td><td>1.88</td><td>0</td><td>0</td><td>13.4</td><td>29</td></tr>
+<tr><td></td><td><code>02851-3a9a9d</code></td><td>1.8</td><td>none</td><td>16/16</td><td>zero_phase_dct</td><td>34</td><td>3.84</td><td>281</td><td>0.215</td><td>47</td><td>2.58</td><td>0</td><td>0</td><td>13.9</td><td>29</td></tr>
+<tr><td></td><td><code>02953-14f4cb</code></td><td>1.8</td><td>none</td><td>24/24</td><td>zero_phase_dct</td><td>36</td><td>8.98</td><td>99</td><td>0.049</td><td>17</td><td>1.26</td><td>0</td><td>0</td><td>21.9</td><td>29</td></tr>
+<tr><td></td><td><code>03132-f0c0b5</code></td><td>1.8</td><td>lead</td><td>8/8</td><td>zero_phase_dct</td><td>37</td><td>5.63</td><td>255</td><td>0.251</td><td>45</td><td>2.41</td><td>0</td><td>0</td><td>15.5</td><td>29</td></tr>
+<tr><td></td><td><code>03454-b435ed</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>9.32</td><td>104</td><td>0.056</td><td>13</td><td>1.27</td><td>0</td><td>0</td><td>21.5</td><td>29</td></tr>
+<tr><td></td><td><code>03624-f8b764</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>34</td><td>9.24</td><td>136</td><td>0.116</td><td>15</td><td>1.53</td><td>0</td><td>0</td><td>21.5</td><td>29</td></tr>
+<tr><td></td><td><code>03824-edd199</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>9.27</td><td>498</td><td>0.236</td><td>40</td><td>2.65</td><td>0</td><td>0</td><td>21.0</td><td>29</td></tr>
+<tr><td></td><td><code>04009-4c062f</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>54</td><td>5.97</td><td>65</td><td>0.008</td><td>43</td><td>0.89</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>04203-4664f6</code></td><td>1.9</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>36</td><td>9.34</td><td>97</td><td>0.044</td><td>13</td><td>1.22</td><td>0</td><td>0</td><td>21.0</td><td>29</td></tr>
+<tr><td></td><td><code>04534-288d84</code></td><td>1.9</td><td>lead</td><td>8/8</td><td>zero_phase_dct</td><td>60</td><td>5.63</td><td>154</td><td>0.137</td><td>25</td><td>1.67</td><td>0</td><td>0</td><td>14.5</td><td>30</td></tr>
+<tr><td></td><td><code>04725-8f630d</code></td><td>2.0</td><td>lead</td><td>8/8</td><td>zero_phase_dct</td><td>45</td><td>5.94</td><td>198</td><td>0.194</td><td>27</td><td>1.97</td><td>0</td><td>0</td><td>17.2</td><td>29</td></tr>
+<tr class="hi"><td></td><td><code>04847-f16c6e</code></td><td>2.0</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>51</td><td>10.28</td><td>219</td><td>0.231</td><td>24</td><td>2.35</td><td>0</td><td>0</td><td>21.4</td><td>29</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>6. 全日 run 一览</h2>
+<div class="scroll">
+<table>
+<thead>
+<tr><th>时间</th><th>run</th><th>κ</th><th>tracker</th><th>p/b</th><th>filter</th><th>dur</th><th>合块Hz</th><th>跟踪p95</th><th>&gt;100</th><th>参考跳</th><th>速度</th><th>empty</th><th>starved</th><th>rem↓</th><th>r2r</th></tr>
+</thead>
+<tbody>
+<tr><td></td><td><code>65027-cf527f</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>40</td><td>34.50</td><td>292</td><td>0.999</td><td>30</td><td>2.58</td><td>0</td><td>0</td><td>27.3</td><td>28</td></tr>
+<tr><td></td><td><code>65530-7feefd</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>60</td><td>34.34</td><td>320</td><td>0.999</td><td>31</td><td>2.64</td><td>0</td><td>0</td><td>27.3</td><td>28</td></tr>
+<tr><td></td><td><code>73030-23ca77</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>60</td><td>33.64</td><td>438</td><td>1.000</td><td>11</td><td>1.68</td><td>0</td><td>0</td><td>27.9</td><td>30</td></tr>
+<tr><td></td><td><code>73914-1dbde0</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>30</td><td>21.74</td><td>632</td><td>0.999</td><td>43</td><td>4.96</td><td>0</td><td>0</td><td>25.6</td><td>51</td></tr>
+<tr><td></td><td><code>74056-07ddf1</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>30</td><td>12.17</td><td>813</td><td>1.000</td><td>47</td><td>4.91</td><td>0</td><td>0</td><td>24.9</td><td>62</td></tr>
+<tr><td></td><td><code>74457-c7de30</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>30</td><td>13.00</td><td>736</td><td>1.000</td><td>50</td><td>10.90</td><td>0</td><td>0</td><td>24.9</td><td>53</td></tr>
+<tr><td></td><td><code>74609-e7701a</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>30</td><td>14.03</td><td>726</td><td>1.000</td><td>58</td><td>3.44</td><td>0</td><td>0</td><td>25.5</td><td>41</td></tr>
+<tr><td></td><td><code>75331-688d05</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>60</td><td>14.03</td><td>727</td><td>1.000</td><td>57</td><td>3.58</td><td>0</td><td>0</td><td>25.5</td><td>40</td></tr>
+<tr><td></td><td><code>80306-80457d</code></td><td>1.0</td><td>lead</td><td>—/—</td><td>—</td><td>60</td><td>16.37</td><td>498</td><td>0.999</td><td>54</td><td>3.82</td><td>0</td><td>0</td><td>25.5</td><td>28</td></tr>
+<tr><td></td><td><code>85931-f9b17e</code></td><td>1.0</td><td>lead</td><td>—/—</td><td>—</td><td>60</td><td>16.29</td><td>53</td><td>0.006</td><td>53</td><td>3.25</td><td>0</td><td>0</td><td>26.2</td><td>29</td></tr>
+<tr><td></td><td><code>90303-91d9fe</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>60</td><td>14.35</td><td>51</td><td>0.014</td><td>18</td><td>1.06</td><td>0</td><td>0</td><td>25.8</td><td>35</td></tr>
+<tr><td></td><td><code>90529-3c1835</code></td><td>1.0</td><td>none</td><td>—/—</td><td>—</td><td>30</td><td>16.27</td><td>25</td><td>0.000</td><td>16</td><td>0.95</td><td>0</td><td>0</td><td>26.4</td><td>29</td></tr>
+<tr><td></td><td><code>91039-2178db</code></td><td>1.0</td><td>none</td><td>—/—</td><td>—</td><td>30</td><td>16.37</td><td>21</td><td>0.000</td><td>18</td><td>1.02</td><td>0</td><td>0</td><td>26.4</td><td>28</td></tr>
+<tr><td></td><td><code>91142-1d7c81</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>30</td><td>14.30</td><td>38</td><td>0.003</td><td>19</td><td>0.98</td><td>0</td><td>0</td><td>26.1</td><td>36</td></tr>
+<tr><td></td><td><code>91451-d85cf4</code></td><td>1.0</td><td>mpc</td><td>—/—</td><td>—</td><td>25</td><td>13.09</td><td>137</td><td>0.082</td><td>19</td><td>1.54</td><td>0</td><td>0</td><td>21.6</td><td>33</td></tr>
+<tr><td></td><td><code>91837-dc739c</code></td><td>1.2</td><td>mpc</td><td>—/—</td><td>—</td><td>10</td><td>12.86</td><td>181</td><td>0.211</td><td>14</td><td>2.03</td><td>0</td><td>0</td><td>21.3</td><td>33</td></tr>
+<tr><td></td><td><code>92616-f728bd</code></td><td>1.0</td><td>none</td><td>4/4</td><td>—</td><td>30</td><td>6.04</td><td>82</td><td>0.028</td><td>36</td><td>0.99</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>92712-621e93</code></td><td>1.0</td><td>mpc</td><td>4/4</td><td>—</td><td>22</td><td>5.82</td><td>165</td><td>0.181</td><td>16</td><td>1.31</td><td>0</td><td>0</td><td>23.1</td><td>34</td></tr>
+<tr><td></td><td><code>92911-576ffa</code></td><td>1.0</td><td>none</td><td>4/4</td><td>—</td><td>23</td><td>6.03</td><td>120</td><td>0.105</td><td>16</td><td>1.24</td><td>0</td><td>0</td><td>21.6</td><td>29</td></tr>
+<tr><td></td><td><code>93009-9005d4</code></td><td>1.0</td><td>none</td><td>4/4</td><td>—</td><td>27</td><td>6.09</td><td>186</td><td>0.108</td><td>43</td><td>1.18</td><td>0</td><td>0</td><td>23.1</td><td>28</td></tr>
+<tr><td></td><td><code>93149-3d5033</code></td><td>1.0</td><td>none</td><td>4/4</td><td>—</td><td>30</td><td>6.00</td><td>435</td><td>0.360</td><td>22</td><td>0.96</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>95009-02a8af</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>18</td><td>5.91</td><td>72</td><td>0.025</td><td>13</td><td>0.91</td><td>0</td><td>0</td><td>23.1</td><td>28</td></tr>
+<tr><td></td><td><code>95050-7aaca4</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>11</td><td>5.94</td><td>96</td><td>0.045</td><td>13</td><td>1.03</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>95218-99a09b</code></td><td>1.0</td><td>none</td><td>4/4</td><td>none</td><td>1</td><td>5.50</td><td>212</td><td>0.436</td><td>11</td><td>1.12</td><td>0</td><td>0</td><td>23.4</td><td>28</td></tr>
+<tr><td></td><td><code>95302-82eb72</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>18</td><td>5.90</td><td>59</td><td>0.018</td><td>10</td><td>0.73</td><td>0</td><td>0</td><td>23.1</td><td>30</td></tr>
+<tr><td></td><td><code>95504-f7dfc6</code></td><td>1.0</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>20</td><td>5.92</td><td>51</td><td>0.023</td><td>8</td><td>0.69</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>95543-66219e</code></td><td>1.0</td><td>mpc</td><td>4/4</td><td>zero_phase_dct</td><td>29</td><td>5.80</td><td>68</td><td>0.006</td><td>9</td><td>0.83</td><td>0</td><td>0</td><td>22.8</td><td>36</td></tr>
+<tr><td></td><td><code>00533-a11bb3</code></td><td>1.1</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>30</td><td>6.37</td><td>76</td><td>0.034</td><td>11</td><td>0.89</td><td>0</td><td>0</td><td>22.8</td><td>28</td></tr>
+<tr><td></td><td><code>00644-cf2da6</code></td><td>1.1</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>30</td><td>6.20</td><td>688</td><td>0.747</td><td>31</td><td>2.49</td><td>0</td><td>0</td><td>21.9</td><td>29</td></tr>
+<tr><td></td><td><code>00856-d882f0</code></td><td>1.2</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>30</td><td>6.70</td><td>212</td><td>0.133</td><td>29</td><td>1.97</td><td>0</td><td>0</td><td>22.6</td><td>28</td></tr>
+<tr><td></td><td><code>00956-d38994</code></td><td>1.2</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>54</td><td>6.69</td><td>1632</td><td>0.682</td><td>41</td><td>4.10</td><td>0</td><td>0</td><td>19.8</td><td>29</td></tr>
+<tr><td></td><td><code>01116-cad581</code></td><td>1.2</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>51</td><td>6.70</td><td>125</td><td>0.062</td><td>17</td><td>1.33</td><td>0</td><td>0</td><td>22.6</td><td>28</td></tr>
+<tr><td></td><td><code>01303-20965d</code></td><td>1.4</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>8</td><td>7.70</td><td>131</td><td>0.083</td><td>48</td><td>2.06</td><td>0</td><td>0</td><td>22.4</td><td>29</td></tr>
+<tr><td></td><td><code>01345-e77e96</code></td><td>1.3</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>31</td><td>7.21</td><td>70</td><td>0.025</td><td>12</td><td>0.93</td><td>0</td><td>0</td><td>22.4</td><td>29</td></tr>
+<tr><td></td><td><code>01452-60becc</code></td><td>1.1</td><td>mpc</td><td>4/4</td><td>zero_phase_dct</td><td>27</td><td>6.03</td><td>292</td><td>0.159</td><td>27</td><td>2.51</td><td>0</td><td>0</td><td>20.1</td><td>43</td></tr>
+<tr><td></td><td><code>01605-35f31a</code></td><td>1.4</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>7.80</td><td>89</td><td>0.035</td><td>14</td><td>1.10</td><td>0</td><td>0</td><td>22.3</td><td>29</td></tr>
+<tr><td></td><td><code>01730-561ca8</code></td><td>1.4</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>7.82</td><td>103</td><td>0.052</td><td>16</td><td>1.27</td><td>0</td><td>0</td><td>22.3</td><td>29</td></tr>
+<tr><td></td><td><code>01911-b410f5</code></td><td>1.5</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>51</td><td>8.50</td><td>78</td><td>0.019</td><td>12</td><td>1.03</td><td>0</td><td>0</td><td>22.3</td><td>29</td></tr>
+<tr><td></td><td><code>02239-5df278</code></td><td>1.5</td><td>none</td><td>8/8</td><td>zero_phase_dct</td><td>35</td><td>4.82</td><td>98</td><td>0.048</td><td>14</td><td>1.16</td><td>0</td><td>0</td><td>18.2</td><td>30</td></tr>
+<tr><td></td><td><code>02340-1115ee</code></td><td>1.7</td><td>none</td><td>8/8</td><td>zero_phase_dct</td><td>44</td><td>5.31</td><td>109</td><td>0.059</td><td>19</td><td>1.23</td><td>0</td><td>0</td><td>17.8</td><td>30</td></tr>
+<tr><td></td><td><code>02510-f37961</code></td><td>1.8</td><td>none</td><td>8/8</td><td>zero_phase_dct</td><td>19</td><td>5.62</td><td>179</td><td>0.156</td><td>25</td><td>1.89</td><td>0</td><td>0</td><td>17.7</td><td>28</td></tr>
+<tr><td></td><td><code>02605-c5bbc3</code></td><td>1.8</td><td>none</td><td>10/10</td><td>zero_phase_dct</td><td>14</td><td>4.57</td><td>689</td><td>0.754</td><td>38</td><td>3.81</td><td>0</td><td>0</td><td>15.6</td><td>29</td></tr>
+<tr><td></td><td><code>02640-56f96b</code></td><td>1.8</td><td>none</td><td>10/10</td><td>zero_phase_dct</td><td>10</td><td>4.62</td><td>152</td><td>0.134</td><td>22</td><td>1.74</td><td>0</td><td>0</td><td>15.6</td><td>28</td></tr>
+<tr><td></td><td><code>02724-be0830</code></td><td>1.8</td><td>none</td><td>12/12</td><td>zero_phase_dct</td><td>43</td><td>3.86</td><td>181</td><td>0.161</td><td>28</td><td>1.88</td><td>0</td><td>0</td><td>13.4</td><td>29</td></tr>
+<tr><td></td><td><code>02851-3a9a9d</code></td><td>1.8</td><td>none</td><td>16/16</td><td>zero_phase_dct</td><td>34</td><td>3.84</td><td>281</td><td>0.215</td><td>47</td><td>2.58</td><td>0</td><td>0</td><td>13.9</td><td>29</td></tr>
+<tr><td></td><td><code>02953-14f4cb</code></td><td>1.8</td><td>none</td><td>24/24</td><td>zero_phase_dct</td><td>36</td><td>8.98</td><td>99</td><td>0.049</td><td>17</td><td>1.26</td><td>0</td><td>0</td><td>21.9</td><td>29</td></tr>
+<tr><td></td><td><code>03132-f0c0b5</code></td><td>1.8</td><td>lead</td><td>8/8</td><td>zero_phase_dct</td><td>37</td><td>5.63</td><td>255</td><td>0.251</td><td>45</td><td>2.41</td><td>0</td><td>0</td><td>15.5</td><td>29</td></tr>
+<tr><td></td><td><code>03413-8da697</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>11</td><td>9.17</td><td>341</td><td>0.720</td><td>26</td><td>2.70</td><td>0</td><td>0</td><td>21.5</td><td>30</td></tr>
+<tr><td></td><td><code>03454-b435ed</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>9.32</td><td>104</td><td>0.056</td><td>13</td><td>1.27</td><td>0</td><td>0</td><td>21.5</td><td>29</td></tr>
+<tr><td></td><td><code>03624-f8b764</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>34</td><td>9.24</td><td>136</td><td>0.116</td><td>15</td><td>1.53</td><td>0</td><td>0</td><td>21.5</td><td>29</td></tr>
+<tr><td></td><td><code>03824-edd199</code></td><td>1.8</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>60</td><td>9.27</td><td>498</td><td>0.236</td><td>40</td><td>2.65</td><td>0</td><td>0</td><td>21.0</td><td>29</td></tr>
+<tr><td></td><td><code>04009-4c062f</code></td><td>1.0</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>54</td><td>5.97</td><td>65</td><td>0.008</td><td>43</td><td>0.89</td><td>0</td><td>0</td><td>23.1</td><td>29</td></tr>
+<tr><td></td><td><code>04132-e8edda</code></td><td>1.9</td><td>none</td><td>4/4</td><td>zero_phase_dct</td><td>10</td><td>9.15</td><td>141</td><td>0.113</td><td>50</td><td>2.72</td><td>0</td><td>0</td><td>18.9</td><td>29</td></tr>
+<tr><td></td><td><code>04203-4664f6</code></td><td>1.9</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>36</td><td>9.34</td><td>97</td><td>0.044</td><td>13</td><td>1.22</td><td>0</td><td>0</td><td>21.0</td><td>29</td></tr>
+<tr><td></td><td><code>04534-288d84</code></td><td>1.9</td><td>lead</td><td>8/8</td><td>zero_phase_dct</td><td>60</td><td>5.63</td><td>154</td><td>0.137</td><td>25</td><td>1.67</td><td>0</td><td>0</td><td>14.5</td><td>30</td></tr>
+<tr><td></td><td><code>04725-8f630d</code></td><td>2.0</td><td>lead</td><td>8/8</td><td>zero_phase_dct</td><td>45</td><td>5.94</td><td>198</td><td>0.194</td><td>27</td><td>1.97</td><td>0</td><td>0</td><td>17.2</td><td>29</td></tr>
+<tr><td></td><td><code>04847-f16c6e</code></td><td>2.0</td><td>lead</td><td>4/4</td><td>zero_phase_dct</td><td>51</td><td>10.28</td><td>219</td><td>0.231</td><td>24</td><td>2.35</td><td>0</td><td>0</td><td>21.4</td><td>29</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="footer">
+代码在本地仓库 <code>/home/nio/codes/ai_infra/r-infra/robot/fasterVLA</code>；真机为 rsync 副本 <code>agi@g2s:/home/agi/fastervla</code>。<br/>
+指标脚本输入：<code>/tmp/g2s_daily_20261123.json</code> · 本页为离线静态 HTML。
+</p>
+</main>
+</body>
+</html>

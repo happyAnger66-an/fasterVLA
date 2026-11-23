@@ -23,7 +23,7 @@ _ARM_DIM = 14
 class UniformRetimer:
     policy_fps: float = 30.0
     kappa: float = 1.0
-    kappa_max: float = 1.5
+    kappa_max: float = 2.0
     kappa_min: float = 1.0
 
     def __post_init__(self) -> None:
@@ -57,7 +57,7 @@ class UniformRetimer:
 class TimeAxisQPConfig:
     policy_fps: float = 30.0
     kappa: float = 1.0
-    kappa_max: float = 1.5
+    kappa_max: float = 2.0
     kappa_min: float = 1.0
     dt_min_s: float = 0.015
     dt_max_s: float = 0.08

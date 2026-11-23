@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from fastervla.deploy.analysis.jitter import chunk_metrics, exec_metrics
+from fastervla.deploy.analysis.metrics import compute_run_metrics, wide_row
 from fastervla.deploy.analysis.tracking import tracking_metrics
 
 
@@ -29,6 +30,8 @@ def analyze_run(
     *,
     min_chunks: int = 1,
     control_hz: float = 100.0,
+    urdf: str | Path | None = None,
+    ee_stride: int = 5,
 ) -> dict[str, Any]:
     """Analyze one ``robot-live-*`` directory.
 
@@ -89,6 +92,33 @@ def analyze_run(
     prev_diff = _as_float_list(pred.get("previous_command_difference"))
     obs_age = _as_float_list(pred.get("observation_age_ms"))
 
+    r2r_p50 = float(np.median(r2r_vals)) if r2r_vals else report.get("r2r_p50_ms")
+    r2r_p95 = (
+        float(np.percentile(r2r_vals, 95))
+        if len(r2r_vals) >= 2
+        else (float(r2r_vals[0]) if r2r_vals else report.get("r2r_p95_ms"))
+    )
+
+    chunk_raw = chunk_metrics(raw, origin, handoff, fps)
+    chunk_filt = chunk_metrics(actions, origin, handoff, fps)
+    exec_m = exec_metrics(ctl, handoff, fs=control_hz)
+    track_m = tracking_metrics(ctl)
+
+    cats = compute_run_metrics(
+        ctl=ctl,
+        pred=pred,
+        report=report,
+        experiment=experiment,
+        chunk_filtered=chunk_filt,
+        exec_m=exec_m,
+        r2r_p50_ms=float(r2r_p50) if r2r_p50 is not None else None,
+        r2r_p95_ms=float(r2r_p95) if r2r_p95 is not None else None,
+        n_chunks=k,
+        control_hz=control_hz,
+        urdf_hint=str(urdf) if urdf is not None else None,
+        ee_stride=int(ee_stride),
+    )
+
     summary: dict[str, Any] = {
         "run_dir": str(d),
         "run_id": d.name.replace("robot-live-", ""),
@@ -102,34 +132,61 @@ def analyze_run(
         "buffer_empty_cycles": report.get("buffer_empty_cycles"),
         "starved_events": report.get("starved_events"),
         "tracking_warning_cycles": report.get("tracking_warning_cycles"),
-        "r2r_p50_ms": float(np.median(r2r_vals)) if r2r_vals else report.get("r2r_p50_ms"),
-        "r2r_p95_ms": float(np.percentile(r2r_vals, 95))
-        if len(r2r_vals) >= 2
-        else (float(r2r_vals[0]) if r2r_vals else report.get("r2r_p95_ms")),
-        "obs_age_p95_ms": float(np.percentile(obs_age, 95)) if obs_age else report.get("image_age_p95_ms"),
+        "r2r_p50_ms": r2r_p50,
+        "r2r_p95_ms": r2r_p95,
+        "obs_age_p95_ms": float(np.percentile(obs_age, 95))
+        if obs_age
+        else report.get("image_age_p95_ms"),
         "handoff_delta_p95_rad": float(np.percentile(prev_diff, 95))
         if len(prev_diff) >= 2
         else (float(prev_diff[0]) if prev_diff else None),
-        "chunk_raw": chunk_metrics(raw, origin, handoff, fps),
-        "chunk_filtered": chunk_metrics(actions, origin, handoff, fps),
-        "exec": exec_metrics(ctl, handoff, fs=control_hz),
-        "tracking": tracking_metrics(ctl),
+        "chunk_raw": chunk_raw,
+        "chunk_filtered": chunk_filt,
+        "exec": exec_m,
+        "tracking": track_m,
         "report_track_err_p95_rad": report.get("track_err_p95_rad"),
+        "speed": cats["speed"],
+        "sway": cats["sway"],
+        "stability": cats["stability"],
+        "accuracy": cats["accuracy"],
+        "metrics_meta": cats["meta"],
     }
-    # Compact headline metrics for CLI printing
-    ch = summary["chunk_filtered"]
-    ex = summary["exec"]
-    tr = summary["tracking"]
+    summary["wide"] = wide_row(summary)
+
+    # Compact headline for CLI / dashboards (four categories, no prog_jump).
     summary["headline"] = {
-        "hf3_mrad": ch.get("hf3_mrad_mean"),
-        "hf7_mrad": ch.get("hf7_mrad_mean"),
-        "rev_per_s": ch.get("rev_per_s"),
-        "handoff_jump_p95_mrad": ch.get("handoff_jump_p95_mrad"),
-        "cmd_hf3_mrad": ex.get("cmd_hf3_mrad_mean"),
-        "meas_hf3_mrad": ex.get("meas_hf3_mrad_mean"),
-        "track_p95_rad": tr.get("cmd_track_p95_rad") or tr.get("cmd_track_p95_step_rad"),
-        "empty_frac": ex.get("empty_frac") if ex.get("empty_frac") is not None else tr.get("empty_frac"),
-        "r2r_p95_ms": summary["r2r_p95_ms"],
+        # legacy + speed
+        "kappa": experiment.get("kappa"),
+        "progress_wall_fps": cats["speed"].get("progress_wall_fps"),
+        "ee_speed_p50_mps": cats["speed"].get("ee_speed_p50_mps"),
+        "ee_speed_p95_mps": cats["speed"].get("ee_speed_p95_mps"),
+        "cmd_spd_p95": cats["speed"].get("cmd_spd_p95_rad_s"),
+        # sway
+        "merge_hz": cats["sway"].get("merge_hz"),
+        "ref_jump_sw_p95_mrad": cats["sway"].get("ref_jump_sw_p95_mrad"),
+        "cmd_jump_sw_p95_mrad": cats["sway"].get("cmd_jump_sw_p95_mrad"),
+        "cmd_hf3_mrad": cats["sway"].get("cmd_hf3_mrad") or exec_m.get("cmd_hf3_mrad_mean"),
+        "hf3_mrad": chunk_filt.get("hf3_mrad_mean"),
+        "hf7_mrad": chunk_filt.get("hf7_mrad_mean"),
+        "rev_per_s": chunk_filt.get("rev_per_s"),
+        "handoff_jump_p95_mrad": chunk_filt.get("handoff_jump_p95_mrad"),
+        # stability
+        "empty": cats["stability"].get("empty"),
+        "starved": cats["stability"].get("starved"),
+        "rem_min": cats["stability"].get("rem_min"),
+        "infer_duty": cats["stability"].get("infer_duty"),
+        "empty_frac": exec_m.get("empty_frac")
+        if exec_m.get("empty_frac") is not None
+        else track_m.get("empty_frac"),
+        "r2r_p95_ms": r2r_p95,
+        # accuracy
+        "ref_track_p95_mrad": cats["accuracy"].get("ref_track_p95_mrad"),
+        "cmd_track_p95_mrad": cats["accuracy"].get("cmd_track_p95_mrad"),
+        "lead_p95_mrad": cats["accuracy"].get("lead_p95_mrad"),
+        "frac_ref_gt_100mrad": cats["accuracy"].get("frac_ref_gt_100mrad"),
+        "track_p95_rad": track_m.get("cmd_track_p95_rad")
+        or track_m.get("cmd_track_p95_step_rad"),
+        "meas_hf3_mrad": exec_m.get("meas_hf3_mrad_mean"),
     }
     return summary
 
@@ -139,6 +196,9 @@ def analyze_results_dir(
     *,
     pattern: str = "robot-live-*",
     min_chunks: int = 1,
+    urdf: str | Path | None = None,
+    ee_stride: int = 5,
+    wide_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Analyze every matching run under ``results_dir``."""
     root = Path(results_dir)
@@ -147,7 +207,13 @@ def analyze_results_dir(
         if not d.is_dir():
             continue
         try:
-            rows.append(analyze_run(d, min_chunks=min_chunks))
+            summary = analyze_run(
+                d,
+                min_chunks=min_chunks,
+                urdf=urdf,
+                ee_stride=ee_stride,
+            )
+            rows.append(summary["wide"] if wide_only else summary)
         except Exception as exc:  # noqa: BLE001
             rows.append({"run_dir": str(d), "error": str(exc)})
     return rows

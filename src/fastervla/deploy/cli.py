@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from fastervla.core.clock import monotonic_s
-from fastervla.core.types import Observation, RobotCommand
+from fastervla.core.types import Chunk, Observation, RobotCommand
 from fastervla.deploy.backends.openpi_ws import OpenPiWebsocketBackend, OpenPiWsConfig
 from fastervla.deploy.client.io.agibot_g2 import AgibotG2Config, AgibotG2Platform
 from fastervla.deploy.client.io.gdk_real import (
@@ -30,6 +30,7 @@ from fastervla.deploy.client.recorder import (
     make_run_dir,
 )
 from fastervla.deploy.client.runtime import require_execute_tty
+from fastervla.deploy.postprocess.arm_chunk_filter import apply_arm_chunk_filter
 from fastervla.deploy.postprocess.retime import (
     TimeAxisQP,
     TimeAxisQPConfig,
@@ -92,7 +93,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="execute requires TTY and sends servo; default shadow",
     )
     run.add_argument("--kappa", type=float, default=1.0)
-    run.add_argument("--kappa-max", type=float, default=1.5)
+    run.add_argument(
+        "--kappa-max",
+        type=float,
+        default=2.0,
+        help="Hard ceiling for --kappa (default 2.0)",
+    )
     run.add_argument("--kappa-min", type=float, default=1.0)
     run.add_argument(
         "--retimer",
@@ -111,12 +117,47 @@ def _build_parser() -> argparse.ArgumentParser:
         default="lead",
         help="L3 tracker: passthrough / LeadTracker / AcadosMpcTracker",
     )
+    run.add_argument(
+        "--hold-gripper",
+        action="store_true",
+        help="Latch grippers to first measured (ignore policy gripper); chatter A/B",
+    )
+    run.add_argument(
+        "--prefix-frames",
+        type=int,
+        default=4,
+        help="4+4 schedule: model frames to consume after accept before next replan (0=off)",
+    )
+    run.add_argument(
+        "--buffer-frames",
+        type=int,
+        default=4,
+        help="4+4 schedule: early-replan escape when remaining_steps <= this",
+    )
+    run.add_argument(
+        "--arm-chunk-filter",
+        choices=("none", "zero_phase_dct", "zero_phase_dct_cross"),
+        default="none",
+        help="Path smooth: ZP DCT on policy arms before retime (soft uses zero_phase_dct)",
+    )
+    run.add_argument(
+        "--arm-filter-cutoff-hz",
+        type=float,
+        default=3.0,
+        help="Arm chunk ZP cutoff (Hz); soft default 3",
+    )
+    run.add_argument(
+        "--arm-interp",
+        choices=("linear", "pchip"),
+        default="linear",
+        help="PlanBuffer reference interpolation (soft uses pchip)",
+    )
     run.add_argument("--t-infer-min-s", type=float, default=0.0)
     run.add_argument("--t-switch-min-s", type=float, default=0.0)
 
     an = sub.add_parser(
         "analyze",
-        help="Offline analysis of robot-live traces (hf3/hf7, tracking, r2r)",
+        help="Offline analysis: speed/sway/stability/accuracy (+ legacy hf3/r2r)",
     )
     an.add_argument(
         "--run",
@@ -135,6 +176,23 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write JSON summary (default: stdout)",
+    )
+    an.add_argument(
+        "--wide",
+        action="store_true",
+        help="Emit flattened wide-table rows (one run per row) instead of full summary",
+    )
+    an.add_argument(
+        "--urdf",
+        type=Path,
+        default=None,
+        help="Optional URDF for EE speed FK (default: g2_tools resolve)",
+    )
+    an.add_argument(
+        "--ee-stride",
+        type=int,
+        default=5,
+        help="Subsample stride for EE FK speed (default 5 ≈20Hz at 100Hz ctrl)",
     )
     an.add_argument(
         "--min-chunks",
@@ -385,6 +443,20 @@ def _run_loop(args: argparse.Namespace) -> int:
             prompt=args.prompt,
         )
         seed = backend.sample(obs=seed_obs, prefix=None, rtc_mode="NONE", n=1)[0]
+        seed_wp, seed_filt_meta = apply_arm_chunk_filter(
+            np.asarray(seed.waypoints, dtype=np.float32),
+            mode=str(args.arm_chunk_filter),
+            cutoff_hz=float(args.arm_filter_cutoff_hz),
+            fps=30.0,
+        )
+        seed = Chunk(
+            waypoints=seed_wp,
+            model_dt=float(seed.model_dt),
+            obs_ts=float(seed.obs_ts),
+            meta=dict(seed.meta),
+        )
+        if seed_filt_meta is not None:
+            seed.meta["arm_chunk_filter"] = seed_filt_meta
         if args.retimer == "qp":
             retimer: UniformRetimer | TimeAxisQP = TimeAxisQP(
                 TimeAxisQPConfig(
@@ -404,7 +476,7 @@ def _run_loop(args: argparse.Namespace) -> int:
                 kappa_min=float(args.kappa_min),
             )
             seed_timed = retimer.retime(seed)
-        buf = PlanBuffer()
+        buf = PlanBuffer(interpolation=str(args.arm_interp))
         buf.load(seed_timed, origin_monotonic=monotonic_s())
 
         cfg = InferenceLoopConfig(
@@ -417,6 +489,12 @@ def _run_loop(args: argparse.Namespace) -> int:
             rtc_mode="INPAINT",
             tracker=str(args.tracker),
             use_lead_tracker=str(args.tracker) != "none",
+            hold_gripper=bool(args.hold_gripper),
+            execution_prefix_frames=int(args.prefix_frames),
+            execution_buffer_frames=int(args.buffer_frames),
+            arm_chunk_filter=str(args.arm_chunk_filter),
+            arm_chunk_filter_cutoff_hz=float(args.arm_filter_cutoff_hz),
+            arm_interpolation=str(args.arm_interp),
         )
         print(
             json.dumps(
@@ -427,6 +505,12 @@ def _run_loop(args: argparse.Namespace) -> int:
                     "kappa": args.kappa,
                     "retimer": args.retimer,
                     "tracker": args.tracker,
+                    "hold_gripper": bool(args.hold_gripper),
+                    "prefix_frames": int(args.prefix_frames),
+                    "buffer_frames": int(args.buffer_frames),
+                    "arm_chunk_filter": str(args.arm_chunk_filter),
+                    "arm_filter_cutoff_hz": float(args.arm_filter_cutoff_hz),
+                    "arm_interp": str(args.arm_interp),
                     "qp_buffer_window": bool(getattr(args, "qp_buffer_window", False)),
                     "duration_s": args.duration_s,
                     "trace_dir": str(run_dir) if run_dir else None,
@@ -444,6 +528,8 @@ def _run_loop(args: argparse.Namespace) -> int:
             config=cfg,
             recorder=recorder,
         )
+        if seed_filt_meta is not None:
+            loop._prev_filtered = np.asarray(seed_wp, dtype=np.float32).copy()
         # InferenceLoop.close()'s recorder itself; avoid double-close in finally.
         summary = loop.run()
         recorder = None  # already closed inside loop
@@ -491,23 +577,59 @@ def _run_loop(args: argparse.Namespace) -> int:
 def _analyze_loop(args: argparse.Namespace) -> int:
     from fastervla.deploy.analysis import analyze_results_dir, analyze_run
 
+    urdf = getattr(args, "urdf", None)
+    ee_stride = int(getattr(args, "ee_stride", 5))
+    wide = bool(getattr(args, "wide", False))
+
     if args.run is not None:
-        summary: dict | list = analyze_run(args.run, min_chunks=int(args.min_chunks))
-        payload = summary
-        print(json.dumps({"headline": summary.get("headline"), "run_dir": summary.get("run_dir")}, ensure_ascii=False), flush=True)
+        summary = analyze_run(
+            args.run,
+            min_chunks=int(args.min_chunks),
+            urdf=urdf,
+            ee_stride=ee_stride,
+        )
+        payload: dict | list = summary["wide"] if wide else summary
+        print(
+            json.dumps(
+                {
+                    "run_dir": summary.get("run_dir"),
+                    "headline": summary.get("headline"),
+                    "wide": summary.get("wide") if not wide else None,
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+            flush=True,
+        )
     else:
         rows = analyze_results_dir(
-            args.results_dir, min_chunks=int(args.min_chunks)
+            args.results_dir,
+            min_chunks=int(args.min_chunks),
+            urdf=urdf,
+            ee_stride=ee_stride,
+            wide_only=wide,
         )
         payload = rows
         for row in rows:
             if "error" in row:
-                print(json.dumps({"run_dir": row["run_dir"], "error": row["error"]}, ensure_ascii=False), flush=True)
+                print(
+                    json.dumps(
+                        {"run_dir": row.get("run_dir"), "error": row["error"]},
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            elif wide:
+                print(json.dumps(row, ensure_ascii=False, default=str), flush=True)
             else:
                 print(
                     json.dumps(
-                        {"run_dir": row["run_dir"], "headline": row.get("headline")},
+                        {
+                            "run_dir": row.get("run_dir"),
+                            "headline": row.get("headline"),
+                        },
                         ensure_ascii=False,
+                        default=str,
                     ),
                     flush=True,
                 )

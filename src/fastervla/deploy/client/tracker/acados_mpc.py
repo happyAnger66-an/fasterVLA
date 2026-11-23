@@ -29,6 +29,9 @@ class AcadosMpcTrackerConfig:
     v_max_rad_s: float = 50.0
     q_min_rad: float = -np.pi
     q_max_rad: float = np.pi
+    # Optional per-joint boxes (length arm_dim); override scalar q_min_rad/q_max_rad.
+    q_min: np.ndarray | None = None
+    q_max: np.ndarray | None = None
     w_track0: float = 10.0
     w_ddy: float = 10.0
     fallback: str = "lead"
@@ -48,6 +51,15 @@ class AcadosMpcTrackerConfig:
             raise ValueError("solve_budget_ms must be > 0")
         if self.fallback != "lead":
             raise ValueError(f"unsupported fallback {self.fallback!r}")
+        nq = int(self.arm_dim)
+        if self.q_min is not None:
+            self.q_min = np.asarray(self.q_min, dtype=np.float64).reshape(-1)
+            if self.q_min.shape[0] != nq:
+                raise ValueError(f"q_min length {self.q_min.shape[0]} != arm_dim {nq}")
+        if self.q_max is not None:
+            self.q_max = np.asarray(self.q_max, dtype=np.float64).reshape(-1)
+            if self.q_max.shape[0] != nq:
+                raise ValueError(f"q_max length {self.q_max.shape[0]} != arm_dim {nq}")
 
 
 class AcadosMpcTracker:
@@ -72,6 +84,17 @@ class AcadosMpcTracker:
         self._last_arm: np.ndarray | None = None
         self._solver: ArmMpcAcadosSolver | None = solver
         self._build_error: str | None = None
+        nq = int(self.config.arm_dim)
+        self._q_min = (
+            np.asarray(self.config.q_min, dtype=np.float64)
+            if self.config.q_min is not None
+            else np.full(nq, float(self.config.q_min_rad))
+        )
+        self._q_max = (
+            np.asarray(self.config.q_max, dtype=np.float64)
+            if self.config.q_max is not None
+            else np.full(nq, float(self.config.q_max_rad))
+        )
         if solver is None and self.has_acados and self.config.eager_build:
             self._ensure_solver()
 
@@ -83,13 +106,23 @@ class AcadosMpcTracker:
     def _ocp_config(self) -> ArmMpcOcpConfig:
         cfg = self.config
         nq = int(cfg.arm_dim)
+        q_min = (
+            np.asarray(cfg.q_min, dtype=np.float64)
+            if cfg.q_min is not None
+            else np.full(nq, float(cfg.q_min_rad))
+        )
+        q_max = (
+            np.asarray(cfg.q_max, dtype=np.float64)
+            if cfg.q_max is not None
+            else np.full(nq, float(cfg.q_max_rad))
+        )
         return ArmMpcOcpConfig(
             nq=nq,
             dt=float(cfg.dt_s),
             tau=float(cfg.plant_tau_s),
             N=int(cfg.horizon_n),
-            q_min=np.full(nq, float(cfg.q_min_rad)),
-            q_max=np.full(nq, float(cfg.q_max_rad)),
+            q_min=q_min,
+            q_max=q_max,
             v_max=np.full(nq, float(cfg.v_max_rad_s)),
             dy_max=np.full(nq, float(cfg.dy_max_rad)),
             ddy_max=np.full(nq, float(cfg.ddy_max_rad)),
@@ -208,6 +241,8 @@ class AcadosMpcTracker:
             dy = float(self.config.dy_max_rad)
             delta = np.clip(u - self._last_arm, -dy, dy)
             u = self._last_arm + delta
+        # Saturate to configured joint box (GDK soft limits when wired).
+        u = np.clip(u, self._q_min, self._q_max)
         self._last_arm = u.copy()
 
         out = ref.copy()

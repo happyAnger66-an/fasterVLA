@@ -8,11 +8,16 @@ from typing import Any
 import numpy as np
 
 from fastervla.core.types import Prefix, TimedChunk
+from fastervla.deploy.postprocess.pchip import pchip_eval
 
 
 class PlanBuffer:
-    def __init__(self) -> None:
+    def __init__(self, *, interpolation: str = "linear") -> None:
+        mode = str(interpolation or "linear").lower()
+        if mode not in ("linear", "pchip"):
+            raise ValueError(f"unknown interpolation {interpolation!r}")
         self._lock = threading.RLock()
+        self._interpolation = mode
         self._waypoints: np.ndarray | None = None
         self._step_dt: np.ndarray | None = None
         self._speed: np.ndarray | None = None
@@ -22,6 +27,18 @@ class PlanBuffer:
         self._generation = 0
         self._last_merge: dict[str, Any] = {}
         self._last_d_hat: int | None = None
+
+    @property
+    def interpolation(self) -> str:
+        return self._interpolation
+
+    @interpolation.setter
+    def interpolation(self, value: str) -> None:
+        mode = str(value or "linear").lower()
+        if mode not in ("linear", "pchip"):
+            raise ValueError(f"unknown interpolation {value!r}")
+        with self._lock:
+            self._interpolation = mode
 
     # ---- public properties ----
 
@@ -231,22 +248,44 @@ class PlanBuffer:
     def reference(self, t_now: float, horizon_s: float = 0.0) -> np.ndarray:
         """Interpolate absolute waypoints at the current model-step progress.
 
-        ``t_now`` / ``horizon_s`` reserved for wall-clock pchip (F2 uses progress).
+        ``linear``: lerp between floor/ceil knots.
+        ``pchip``: monotone cubic on wall-clock node times from ``step_dt``
+        (matches old-stack soft arm path when ``step_dt`` is uniform).
+        ``t_now`` / ``horizon_s`` reserved for absolute wall-clock queries.
         """
         with self._lock:
             self._require_loaded()
-            assert self._waypoints is not None
+            assert self._waypoints is not None and self._step_dt is not None
             _ = (t_now, horizon_s)
             p = float(self._progress)
-            h, d = self._waypoints.shape
+            h = int(self._waypoints.shape[0])
             if p <= 0:
                 return self._waypoints[0].copy()
             if p >= h - 1:
                 return self._waypoints[-1].copy()
+            if self._interpolation == "pchip" and h >= 2:
+                return self._reference_pchip(p)
             i0 = int(np.floor(p))
             i1 = min(i0 + 1, h - 1)
             frac = p - i0
             return (1.0 - frac) * self._waypoints[i0] + frac * self._waypoints[i1]
+
+    def _reference_pchip(self, progress: float) -> np.ndarray:
+        assert self._waypoints is not None and self._step_dt is not None
+        h = int(self._waypoints.shape[0])
+        # Node times: waypoint k is the pose at cumulative time of segments 0..k-1.
+        # progress advances along those same segments (see advance()).
+        knots = np.zeros(h, dtype=np.float64)
+        if h >= 2:
+            knots[1:] = np.cumsum(self._step_dt[: h - 1])
+        # Map progress → wall time along the same ruler.
+        p = float(progress)
+        i0 = int(np.floor(p))
+        i0 = max(0, min(i0, h - 2))
+        frac = p - i0
+        seg = float(self._step_dt[i0])
+        t_query = float(knots[i0] + frac * seg)
+        return pchip_eval(knots, self._waypoints, t_query)
 
     def _require_loaded(self) -> None:
         if self._waypoints is None or self._step_dt is None:

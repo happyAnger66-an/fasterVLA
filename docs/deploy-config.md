@@ -13,7 +13,7 @@
 | 你想做什么 | 配什么 | 说明 |
 |---|---|---|
 | 整体提速到 1.2× | `kappa: 1.2` | 相对 `policy_fps`（默认 30）的目标倍速 |
-| 禁止超过 1.5× | `kappa_max: 1.5` | 人在回路 / 将来 safety 降速的天花板 |
+| 禁止超过 2.0× | `kappa_max: 2.0` | 人在回路 / 将来 safety 降速的天花板（CLI 默认） |
 | 降速地板 | `kappa_min: 1.0` | 超预算时不应低于此（safety 未接线前仅校验） |
 | 匀速时间轴（F2） | `retimer: uniform` | `step_dt ≡ 1/(κ·fps)`，无 v_max QP |
 | 物理盒内重定时（F3） | `retimer: qp` | κ 是软目标；大位移段会被 `v_max` / `dt` 盒拉慢 |
@@ -32,7 +32,7 @@
 python -m fastervla.deploy.cli run --mode shadow --kappa 1.0 --retimer uniform
 
 # 1.2× TimeAxisQP
-python -m fastervla.deploy.cli run --mode shadow --kappa 1.2 --kappa-max 1.5 \
+python -m fastervla.deploy.cli run --mode shadow --kappa 1.2 \
   --retimer qp
 
 # 可选：打开老栈式 inference-buffer 墙钟地板
@@ -46,9 +46,22 @@ python -m fastervla.deploy.cli run --mode shadow --kappa 1.4 --retimer qp \
 | `--kappa-max` / `--kappa-min` | `kappa_max` / `kappa_min` |
 | `--retimer {uniform,qp}` | 选 `UniformRetimer` 或 `TimeAxisQP` |
 | `--qp-buffer-window` | `time_axis_qp.buffer_window_enabled` |
-| `--t-infer-min-s` / `--t-switch-min-s` | L1 节流 |
+| `--t-infer-min-s` / `--t-switch-min-s` | L1 墙钟节流 |
+| `--prefix-frames` / `--buffer-frames` | L1 **4+4 合块节流**（`execution_prefix_frames` / `execution_buffer_frames`；默认 4/4；`0` 关 prefix 门） |
+| `--arm-chunk-filter` | 路径平滑：`none` / `zero_phase_dct` / `zero_phase_dct_cross`（默认 `none`；soft 用 `zero_phase_dct`） |
+| `--arm-filter-cutoff-hz` | ZP 截止频率（默认 `3`） |
+| `--arm-interp` | `PlanBuffer.reference`：`linear` / `pchip`（默认 `linear`；soft 用 `pchip`） |
+
+软栈对齐路径平滑示例：
+
+```bash
+python -m fastervla.deploy.cli run --mode shadow \
+  --arm-chunk-filter zero_phase_dct --arm-filter-cutoff-hz 3 --arm-interp pchip
+```
 
 其余 QP 约束（`dt_*`、`v_max_*`、`lambda_*`）**目前只在 `TimeAxisQPConfig` 默认值 / 代码构造处**，CLI 尚未全部暴露；改示例 YAML 或直接在构造 `TimeAxisQPConfig(...)` 时传入。
+
+> **注意**：`retimer.prefix_frames`（QP buffer 窗）与 CLI `--prefix-frames`（合块门控）是两套字段；合块节流走 `InferenceLoopConfig.execution_*`。
 
 ---
 
@@ -79,7 +92,7 @@ policy:
 
 speed:
   kappa: 1.2
-  kappa_max: 1.5
+  kappa_max: 2.0
   kappa_min: 1.0
 
 retimer:
@@ -106,6 +119,11 @@ retimer:
 inference:
   control_hz: 100.0
   rtc_mode: INPAINT
+  execution_prefix_frames: 4   # 合块门：接受后至少推进这么多模型帧再重规划；0=关
+  execution_buffer_frames: 4   # remaining_steps ≤ 此值时提前放行（防空缓冲）
+  arm_chunk_filter: none       # none | zero_phase_dct | zero_phase_dct_cross
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: linear    # linear | pchip
   t_infer_min_s: 0.0
   t_switch_min_s: 0.0
   latency_margin_ms: 10.0
@@ -135,10 +153,10 @@ robot:
 | 字段 | 类型 | 默认 | 含义 |
 |---|---|---|---|
 | `kappa` | float | `1.0` | 本跑目标倍速。Uniform：每段 `dt=1/(κ·fps)`；QP：目标速率 `s_ref=fps·κ` |
-| `kappa_max` | float | `1.5` | 允许上限，不得越过 |
+| `kappa_max` | float | `2.0` | 允许上限，不得越过（CLI 默认） |
 | `kappa_min` | float | `1.0` | 降速地板 |
 
-建议扫参顺序：`1.0`（持平）→ `1.2` → `1.4` →（F5）`1.5`。真机先把 `kappa_max` 钉死再动 `kappa`。
+建议扫参顺序：`1.0`（持平）→ `1.2` → `1.4` → `1.5` → `1.6+`。真机 `kappa_max` 默认 `2.0`；κ≥1.5 时建议加大 `--prefix-frames`。
 
 ### 3.2 `retimer` — 时间轴与物理约束
 
@@ -186,6 +204,11 @@ robot:
 | `control_hz` | `100` | 控制环频率 |
 | `policy_fps` | `30` | 与 `speed`/`retimer` 共用的策略帧率 |
 | `rtc_mode` | `INPAINT` | 开推 RTC 模式 |
+| `execution_prefix_frames` | `4` | 合块门：接受后至少推进这么多模型帧再重规划；`0` 关闭 |
+| `execution_buffer_frames` | `4` | `remaining_steps ≤` 此值时提前放行（防空缓冲） |
+| `arm_chunk_filter` | `none` | 推理后、Retimer 前对臂维做 ZP DCT |
+| `arm_chunk_filter_cutoff_hz` | `3` | ZP 截止（Hz） |
+| `arm_interpolation` | `linear` | `PlanBuffer.reference` 插值；`pchip` 对齐 soft |
 | `t_infer_min_s` | `0` | 两次推理之间最小墙钟间隔 |
 | `t_switch_min_s` | `0` | 两次换段（merge）最小间隔 |
 | `latency_margin_ms` | `10` | 估 \(\hat d\) 时叠在 r2r P95 上的裕量 |
@@ -241,14 +264,14 @@ G2 硬事实（`robot_aid`、21 维命令、健康字段等）见 [`deploy-g2-pl
 **持平基线（1.0× Uniform）**
 
 ```yaml
-speed: { kappa: 1.0, kappa_max: 1.5, kappa_min: 1.0 }
+speed: { kappa: 1.0, kappa_max: 2.0, kappa_min: 1.0 }
 retimer: { type: uniform }
 ```
 
 **提速 + QP（1.2×）**
 
 ```yaml
-speed: { kappa: 1.2, kappa_max: 1.5, kappa_min: 1.0 }
+speed: { kappa: 1.2, kappa_max: 2.0, kappa_min: 1.0 }
 retimer:
   type: qp
   dt_min_s: 0.015
@@ -261,7 +284,7 @@ retimer:
 **更猛（1.4×）仍卡在物理盒内**
 
 ```yaml
-speed: { kappa: 1.4, kappa_max: 1.5, kappa_min: 1.0 }
+speed: { kappa: 1.4, kappa_max: 2.0, kappa_min: 1.0 }
 retimer:
   type: qp
   # 确认 1/(30*1.4)≈23.8ms ∈ [dt_min, dt_max]
@@ -284,3 +307,27 @@ retimer:
 | 训练配方 `configs/training/*.yaml` | 另一套，见训练 README / recipe |
 
 有 YAML 加载需求时：用 `core.config.load_dataclass_yaml` 分段加载，或新增顶层 `DeployConfig` dataclass 一次载入。
+
+---
+
+## 7. 离线指标（`analyze`）
+
+`fastervla-deploy analyze` 对 `robot-live-*` 出四类统计（**不含**易误解的 `prog_jump`）：
+
+| 类 | 代表字段 |
+|---|---|
+| 加速 | `progress_wall_fps`（按 `plan_id` 段累加净模型步）、`cmd_spd_p95`、`ee_speed_p50/p95`（g2_tools URDF FK）、`step_dt_*` |
+| 摆动/犹豫 | `merge_hz`、`sw_ms_p50`、`ref/cmd_jump_sw_p95`、`cmd_hf3`、`rev_per_s`、`handoff_jump_p95` |
+| 稳定 | `empty` / `starved` / `empty_frac`、`rem_min`、`r2r_p95`、`infer_duty`、`servo_tick_p95` |
+| 准确 | `ref_track_p95`（高 κ 主看）、`cmd_track_p95`、`lead_p95`、`frac_*_gt_100mrad` |
+
+```bash
+# 单 run：打印 headline；完整 JSON 含 speed/sway/stability/accuracy + wide 行
+python -m fastervla.deploy.cli analyze --run results/robot-live-... --out /tmp/sum.json
+
+# 目录扫描成宽表（日报一行一 run）
+python -m fastervla.deploy.cli analyze --results-dir results --wide --out /tmp/wide.json
+
+# EE FK：默认搜 g2_tools URDF；可显式指定
+python -m fastervla.deploy.cli analyze --run ... --urdf /path/to/G2_t2_crsB.urdf --ee-stride 5
+```

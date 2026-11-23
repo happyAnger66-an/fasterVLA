@@ -269,15 +269,19 @@ def test_g2_execute_servo_nonzero_rc_no_retry(fake_robot: FakeGdkRobot, g2_cfg: 
     plat.close()
 
 
-# 用例: 超限位先 clip，再按 tolerance 报违规（臂 0.02 / 夹爪 0.01）
+# 用例: 超限位先 clip，再按 tolerance 报违规（臂 0.02 / 夹爪 0.01），错误含维号
 # 参数: 无
 def test_g2_clips_and_reports_limit_violation(fake_robot: FakeGdkRobot, g2_cfg: AgibotG2Config) -> None:
     plat = AgibotG2Platform(robot=fake_robot, config=g2_cfg, mode="execute")
     q = np.zeros(len(COMMAND_INDICES), dtype=np.float64)
     q[5] = 3.0  # far beyond +2.0 limit (> arm_clip_tolerance)
     cmd = RobotCommand(q_des=q, qd_des=None, timestamp=0.0)
-    with pytest.raises((ValueError, RuntimeError)):
+    with pytest.raises((ValueError, RuntimeError), match="dim=5") as ei:
         plat.command.send(cmd)
+    assert "excess=" in str(ei.value)
+    lo, hi = plat.joint_limits()
+    assert lo.shape == (len(COMMAND_INDICES),)
+    assert hi.shape == (len(COMMAND_INDICES),)
     plat.close()
 
 

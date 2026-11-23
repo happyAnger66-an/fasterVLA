@@ -188,6 +188,32 @@ def test_plan_buffer_reference_returns_finite_vector() -> None:
     assert np.isfinite(q).all()
 
 
+# 用例: pchip 在整数模型步处贴合路点，且不超出单调包络
+# 参数: 无
+def test_plan_buffer_reference_pchip_hits_knots_no_overshoot() -> None:
+    h = 8
+    wp = np.zeros((h, 24), dtype=np.float64)
+    wp[:, 8] = np.array([0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+    step_dt = np.full(h, 1.0 / 30.0, dtype=np.float64)
+    timed = TimedChunk(
+        chunk=Chunk(waypoints=wp.astype(np.float32), model_dt=float(step_dt[0]), obs_ts=0.0),
+        step_dt=step_dt,
+        speed=1.0 / step_dt,
+    )
+    buf = PlanBuffer(interpolation="pchip")
+    buf.load(timed, origin_monotonic=0.0)
+    np.testing.assert_allclose(buf.reference(0.0), wp[0], atol=1e-9)
+    buf.advance(2.0 / 30.0, alpha=1.0)
+    np.testing.assert_allclose(buf.reference(0.0)[8], wp[2, 8], atol=1e-6)
+    # Half-step inside rising edge stays in [0, 1].
+    buf2 = PlanBuffer(interpolation="pchip")
+    buf2.load(timed, origin_monotonic=0.0)
+    buf2.advance(1.5 / 30.0, alpha=1.0)
+    v = float(buf2.reference(0.0)[8])
+    assert 0.0 - 1e-9 <= v <= 1.0 + 1e-9
+    assert np.isfinite(buf2.reference(0.0)).all()
+
+
 # 用例: 控制环 advance 与推理线程 prefix/merge 可并发不崩（冒烟）
 # 参数: 无
 def test_plan_buffer_thread_smoke() -> None:

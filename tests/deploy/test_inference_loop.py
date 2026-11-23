@@ -242,3 +242,84 @@ def test_inference_loop_records_starved_when_d_hat_exceeds_remaining() -> None:
     summary = loop.run()
     assert summary.starved_events >= 1
     plat.close()
+
+
+# 用例: prefix_frames=4 时合块频率低于 prefix_frames=0
+# 参数: 无
+def test_inference_loop_prefix_frames_throttles_merges() -> None:
+    def _count_infers(prefix: int) -> int:
+        loop, backend, plat = _loop(
+            delay_s=0.0,
+            kappa=1.0,
+            duration_s=1.2,
+            t_infer_min_s=0.0,
+        )
+        loop.config.execution_prefix_frames = prefix
+        loop.config.execution_buffer_frames = 4
+        summary = loop.run()
+        plat.close()
+        return int(summary.infer_calls)
+
+    n_throttled = _count_infers(4)
+    n_open = _count_infers(0)
+    assert n_throttled >= 1
+    assert n_open >= n_throttled
+    # Open schedule should replan clearly more often than 4+4.
+    assert n_open > n_throttled
+
+
+# 用例: hold_gripper 时命令夹爪贴实测，帧间 Δgrip 接近 0
+# 参数: 无
+def test_inference_loop_hold_gripper_freezes_command_grippers(tmp_path) -> None:
+    from fastervla.deploy.client.recorder import TraceRecorder
+
+    plat = _platform()
+    # Nudge plant grippers away from zero so hold has a nonzero target.
+    st = plat.state.read()
+    q = np.asarray(st.q, dtype=np.float64).copy()
+    q[22] = 0.2
+    q[23] = 0.3
+    if hasattr(plat, "_plant") and hasattr(plat._plant, "q"):
+        # Mock plant is 21-d command layout; last two are grippers.
+        plat._plant.q[-2:] = np.array([0.2, 0.3], dtype=np.float64)
+    inner = MockBackend(horizon=30, action_dim=24, seed=0, mode="sine")
+    backend = DelayedBackend(inner, delay_s=0.0)
+    backend.warmup()
+    buf = PlanBuffer()
+    seed = inner.sample(
+        obs=Observation(
+            images={"base_0_rgb": b"x"},
+            image_ts=0.0,
+            state=q.astype(np.float32),
+            state_ts=0.0,
+        ),
+        prefix=None,
+        rtc_mode="NONE",
+        n=1,
+    )[0]
+    timed = UniformRetimer(policy_fps=30.0, kappa=1.0).retime(seed)
+    buf.load(timed, origin_monotonic=0.0)
+    rec = TraceRecorder(tmp_path / "hold-grip", capacity_ticks=500, horizon=30)
+    cfg = InferenceLoopConfig(
+        control_hz=100.0,
+        policy_fps=30.0,
+        kappa=1.0,
+        duration_s=0.5,
+        tracker="none",
+        hold_gripper=True,
+    )
+    loop = InferenceLoop(
+        platform=plat,
+        backend=backend,
+        plan_buffer=buf,
+        retimer=UniformRetimer(policy_fps=30.0, kappa=1.0),
+        config=cfg,
+        recorder=rec,
+    )
+    loop.run()
+    out = np.load(tmp_path / "hold-grip" / "control_trace.npz")
+    grip = out["command21"][:, -2:]
+    dgrip = np.max(np.abs(np.diff(grip, axis=0)), axis=1)
+    assert float(np.max(dgrip)) < 1e-9
+    assert np.allclose(grip, grip[0:1], atol=1e-9)
+    plat.close()

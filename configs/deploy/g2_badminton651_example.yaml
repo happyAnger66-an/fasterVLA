@@ -24,7 +24,7 @@ policy:
 # --- Speed-up knobs ---
 speed:
   kappa: 1.2
-  kappa_max: 1.5
+  kappa_max: 2.0
   kappa_min: 1.0
 
 # --- Time axis: uniform | qp ---

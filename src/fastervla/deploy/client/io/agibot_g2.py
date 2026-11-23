@@ -130,6 +130,10 @@ class AgibotG2Platform(RobotPlatform):
     def images(self) -> ImageSource:
         return self._img_src
 
+    def joint_limits(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return copies of GDK soft limits for the 21-D command layout."""
+        return self._limits_lo.copy(), self._limits_hi.copy()
+
     def close(self) -> None:
         return None
 
@@ -223,7 +227,13 @@ class AgibotG2Platform(RobotPlatform):
             np.any(arm_excess > self.config.arm_clip_tolerance)
             or np.any(grip_excess > self.config.gripper_clip_tolerance)
         ):
-            raise RuntimeError("command exceeds joint limits beyond clip tolerance")
+            i = int(np.argmax(excess))
+            raise RuntimeError(
+                "command exceeds joint limits beyond clip tolerance: "
+                f"dim={i} q={float(q[i]):+.6f} "
+                f"lim=[{float(self._limits_lo[i]):+.6f}, {float(self._limits_hi[i]):+.6f}] "
+                f"excess={float(excess[i]):.6f}"
+            )
 
         req = SimpleNamespace(
             joint_positions=clipped.tolist(),
