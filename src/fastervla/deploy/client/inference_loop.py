@@ -58,9 +58,12 @@ class InferenceLoopConfig:
     horizon: int = 30
     action_dim: int = 24
     latency_window: int = 32
-    # Old-stack 4+4 schedule: wait this many model frames after an accept
-    # before the next replan/merge (0 disables). Buffer is the early-replan
-    # escape when remaining_steps drops to this level.
+    # Replan gate after an accepted merge:
+    #   prefix>0  — old soft schedule: wait until progress advanced by this
+    #               many model frames (e.g. 4+4). Keeps merge rate down.
+    #   prefix=0  — RTC-native: start the next infer as soon as the previous
+    #               result is merged; frozen steps are just d̂. Buffer then
+    #               only matters if prefix>0 (early escape when remaining low).
     execution_prefix_frames: int = 4
     execution_buffer_frames: int = 4
     use_lead_tracker: bool = True
@@ -81,6 +84,8 @@ class InferenceLoopConfig:
     arm_chunk_filter_cutoff_hz: float = 3.0
     arm_chunk_filter_context_frames: int = 10
     arm_interpolation: str = "linear"  # linear | pchip
+    # MPC horizon reference: linear (r→r_{+1} lerp) | plan (PlanBuffer at t+k·dt).
+    mpc_preview: str = "linear"
     # TimeAxisQP only: lock the new chunk's first d_hat + extra frame durations
     # to the old plan's (same waypoints via RTC prefix) so merges keep rate.
     qp_prefix_lock: bool = False
@@ -119,6 +124,10 @@ class InferenceLoopConfig:
         if interp not in ("linear", "pchip"):
             raise ValueError(f"unknown arm_interpolation {self.arm_interpolation!r}")
         self.arm_interpolation = interp
+        preview = str(self.mpc_preview or "linear").lower()
+        if preview not in ("linear", "plan"):
+            raise ValueError(f"unknown mpc_preview {self.mpc_preview!r}")
+        self.mpc_preview = preview
 
     def lead_tracker_config(self) -> LeadTrackerConfig:
         return LeadTrackerConfig(
@@ -232,7 +241,10 @@ class InferenceLoop:
             )
 
             # Prefer GDK soft limits over ±π so lead cannot trip servo clip abort.
-            mpc_kw: dict[str, Any] = {"eager_build": True}
+            mpc_kw: dict[str, Any] = {
+                "eager_build": True,
+                "preview": self.config.mpc_preview,
+            }
             jl = getattr(self.platform, "joint_limits", None)
             if callable(jl):
                 lo21, hi21 = jl()
@@ -356,7 +368,13 @@ class InferenceLoop:
             return float(np.percentile(arr, 95)) + margin
 
         def _prefix_replan_due() -> bool:
-            """Old-stack prefetch_due: prefix frames consumed, or buffer nearly empty."""
+            """Whether the infer thread may start another sample.
+
+            ``prefix=0``: always due (fire next infer right after merge; RTC
+            freezes ``d̂`` steps while it runs). ``prefix>0``: wait until that
+            many frames have been consumed since last accept, or remaining
+            steps drop to ``buffer`` (starve escape).
+            """
             prefix_f = int(cfg.execution_prefix_frames)
             if prefix_f <= 0:
                 return True
@@ -567,8 +585,16 @@ class InferenceLoop:
                 last_switch_mono["t"] = t_accept
                 last_switch_progress["p"] = float(self.plan_buffer.progress)
 
-        # Floor between infer attempts; 4+4 prefix gate is the main replan throttle.
-        infer_period_s = max(1.0 / float(cfg.policy_fps), float(cfg.t_infer_min_s))
+        # Inter-attempt floor. With prefix>0 the 4+4 gate is the real throttle,
+        # so a 1/fps sleep just avoids busy-spinning the wait loop. With
+        # prefix=0 we want back-to-back infer (serial on r2r); only honor
+        # t_infer_min_s (default 0).
+        if int(cfg.execution_prefix_frames) <= 0:
+            infer_period_s = max(0.0, float(cfg.t_infer_min_s))
+        else:
+            infer_period_s = max(
+                1.0 / float(cfg.policy_fps), float(cfg.t_infer_min_s)
+            )
 
         def infer_thread() -> None:
             next_infer = time.monotonic()
@@ -629,6 +655,12 @@ class InferenceLoop:
                     arm_ahead, arm_vel = _arm_ref_vel(
                         wp, step_dt_arr, float(self.plan_buffer.progress)
                     )
+                    ref_horizon = None
+                    if self._mpc.config.preview == "plan":
+                        lo_p, hi_p = ARM_POLICY_SLICE
+                        ref_horizon = self.plan_buffer.reference_horizon(
+                            int(self._mpc.config.horizon_n) + 1, dt
+                        )[:, lo_p:hi_p]
                     command21 = self._mpc.step(
                         q_hat=q_hat,
                         reference=reference21,
@@ -636,6 +668,7 @@ class InferenceLoop:
                         ref_vel=arm_vel,
                         now=t_tick0,
                         blending=False,
+                        ref_horizon=ref_horizon,
                     )
                     self._estimator.push_command(t=t_tick0, y=command21[5:19])
                     if self._mpc.last_status == "ok":

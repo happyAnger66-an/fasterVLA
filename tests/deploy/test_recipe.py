@@ -96,6 +96,38 @@ def test_lead_tracker_section_wires_to_cli_dests() -> None:
     assert d["lead_hold_during_blend"] is True
 
 
+def test_load_ctrl_0x4_preset() -> None:
+    root = Path(__file__).resolve().parents[2]
+    d = load_run_recipe(
+        root / "configs" / "deploy" / "h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml"
+    )
+    assert d["kappa"] == 1.4
+    assert d["prefix_frames"] == 0
+    assert d["buffer_frames"] == 4
+    assert d["qp_transport_kappa_max"] == 1.4
+    assert d["lead_closed_grip_max_lead_rad"] == 0.05
+    args = _build_parser(recipe_defaults=d).parse_args(
+        [
+            "run",
+            "--config",
+            "configs/deploy/h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml",
+        ]
+    )
+    assert args.prefix_frames == 0
+    assert args.buffer_frames == 4
+    # CLI can restore old 4+4 without changing the recipe file.
+    args4 = _build_parser(recipe_defaults=d).parse_args(
+        [
+            "run",
+            "--config",
+            "configs/deploy/h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml",
+            "--prefix-frames",
+            "4",
+        ]
+    )
+    assert args4.prefix_frames == 4
+
+
 def test_load_lead2_preset() -> None:
     root = Path(__file__).resolve().parents[2]
     d = load_run_recipe(root / "configs" / "deploy" / "h7_k1p3_qp_phase_lead2.yaml")

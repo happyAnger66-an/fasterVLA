@@ -192,6 +192,41 @@ def test_mpc_enforces_dy_max_on_success() -> None:
     assert float(np.max(np.abs(delta))) <= dy_max + 1e-9
 
 
+# 用例: preview 开关 — linear 不传 ref_horizon；plan 透传 (N+1, 14)；非法值拒绝
+# 参数: 无
+def test_mpc_preview_switch_routes_ref_horizon() -> None:
+    with pytest.raises(ValueError):
+        AcadosMpcTrackerConfig(preview="nope")
+    seen: dict[str, object] = {}
+
+    def spy(*, q_hat, ref_horizon=None, **_k):
+        seen["h"] = ref_horizon
+        return q_hat.copy(), "ok", 0.1
+
+    horizon = np.tile(np.linspace(0.0, 0.08, 9).reshape(-1, 1), (1, 14))
+    kw = dict(
+        q_hat=np.zeros(14),
+        reference=_cmd(0.0),
+        ref_ahead=np.zeros(14),
+        ref_vel=np.zeros(14),
+        now=0.0,
+        ref_horizon=horizon,
+    )
+
+    tr_lin = AcadosMpcTracker(_cfg(preview="linear"))
+    tr_lin._solve = spy  # type: ignore[method-assign]
+    tr_lin.step(**kw)  # type: ignore[arg-type]
+    assert seen["h"] is None
+
+    tr_plan = AcadosMpcTracker(_cfg(preview="plan"))
+    tr_plan._solve = spy  # type: ignore[method-assign]
+    tr_plan.step(**kw)  # type: ignore[arg-type]
+    np.testing.assert_allclose(seen["h"], horizon)
+
+    with pytest.raises(ValueError):
+        tr_plan.step(**{**kw, "ref_horizon": np.zeros((9, 3))})  # type: ignore[arg-type]
+
+
 # 用例: 维数错误的 q_hat / reference 抛错
 # 参数: 无
 def test_mpc_rejects_wrong_shapes() -> None:

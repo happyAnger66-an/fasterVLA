@@ -245,13 +245,19 @@ def _build_parser(
         "--prefix-frames",
         type=int,
         default=4,
-        help="4+4 schedule: model frames to consume after accept before next replan (0=off)",
+        help=(
+            "Replan gate after accept: wait this many model frames before next "
+            "infer (old soft 4+4). 0=RTC-native: fire next infer immediately"
+        ),
     )
     run.add_argument(
         "--buffer-frames",
         type=int,
         default=4,
-        help="4+4 schedule: early-replan escape when remaining_steps <= this",
+        help=(
+            "When prefix>0: early-replan escape if remaining_steps <= this "
+            "(starve guard). Unused for gating when --prefix-frames 0"
+        ),
     )
     run.add_argument(
         "--arm-chunk-filter",
@@ -270,6 +276,13 @@ def _build_parser(
         choices=("linear", "pchip"),
         default="linear",
         help="PlanBuffer reference interpolation (soft uses pchip)",
+    )
+    run.add_argument(
+        "--mpc-preview",
+        choices=("linear", "plan"),
+        default="linear",
+        help="MPC horizon ref: linear (r→r_{+1} lerp, legacy) | plan "
+        "(PlanBuffer sampled at t+k·10ms, true preview)",
     )
     run.add_argument("--t-infer-min-s", type=float, default=0.0)
     run.add_argument("--t-switch-min-s", type=float, default=0.0)
@@ -722,6 +735,7 @@ def _run_loop(args: argparse.Namespace) -> int:
             arm_chunk_filter=str(args.arm_chunk_filter),
             arm_chunk_filter_cutoff_hz=float(args.arm_filter_cutoff_hz),
             arm_interpolation=str(args.arm_interp),
+            mpc_preview=str(args.mpc_preview),
             qp_prefix_lock=bool(args.qp_prefix_lock),
             qp_lock_extra_frames=int(args.qp_lock_extra),
         )
@@ -746,6 +760,7 @@ def _run_loop(args: argparse.Namespace) -> int:
                     "arm_chunk_filter": str(args.arm_chunk_filter),
                     "arm_filter_cutoff_hz": float(args.arm_filter_cutoff_hz),
                     "arm_interp": str(args.arm_interp),
+                    "mpc_preview": str(args.mpc_preview),
                     "qp_buffer_window": bool(getattr(args, "qp_buffer_window", False)),
                     "qp_contact_kappa": args.qp_contact_kappa,
                     "qp_contact_window": int(args.qp_contact_window),
@@ -788,6 +803,7 @@ def _run_loop(args: argparse.Namespace) -> int:
                 "fallback_count": int(mpc.fallback_count),
                 "last_status": mpc.last_status,
                 "build_error": getattr(mpc, "_build_error", None),
+                "preview": getattr(mpc.config, "preview", None),
             }
         print(
             json.dumps(

@@ -268,6 +268,29 @@ def test_inference_loop_prefix_frames_throttles_merges() -> None:
     assert n_open > n_throttled
 
 
+# 用例: prefix=0 时合块间隔贴近 r2r，不被 4 帧门 / 1/fps 空等拉长
+# 参数: delay_s=0.05 模拟推理；duration 够多次合并
+def test_inference_loop_prefix0_merge_interval_near_r2r() -> None:
+    delay_s = 0.05
+    loop, backend, plat = _loop(
+        delay_s=delay_s,
+        kappa=1.0,
+        duration_s=0.9,
+        t_infer_min_s=0.0,
+    )
+    loop.config.execution_prefix_frames = 0
+    loop.config.execution_buffer_frames = 4
+    summary = loop.run()
+    plat.close()
+    assert summary.infer_calls >= 5
+    # Serial infer: mean interval ≈ r2r (+ tiny overhead), not 4·dt+r2r (~0.18s).
+    intervals = list(summary.infer_intervals_s)
+    assert intervals, "expected recorded infer intervals"
+    mean_iv = float(np.mean(intervals))
+    assert mean_iv < 0.12, f"prefix=0 mean interval {mean_iv:.3f}s too slow"
+    assert mean_iv >= delay_s * 0.8
+
+
 # 用例: hold_gripper 时命令夹爪贴实测，帧间 Δgrip 接近 0
 # 参数: 无
 def test_inference_loop_hold_gripper_freezes_command_grippers(tmp_path) -> None:

@@ -33,6 +33,12 @@ fastervla-deploy run --config configs/deploy/h7_soft_1x.yaml
 
 # h7 1.8× soft；CLI 覆盖 mode / duration
 fastervla-deploy run --config configs/deploy/h7_soft_1p8.yaml --mode execute --duration-s 30
+
+# 默认工作点 M4b（护栏 + 4+4 兼容）
+fastervla-deploy run --config configs/deploy/h7_k1p4_qp_phase_lead2_ctrl.yaml --mode execute
+
+# 同上护栏，合块门 prefix=0（合并后立即下一轮；可用 --prefix-frames 4 切回）
+fastervla-deploy run --config configs/deploy/h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml --mode execute
 ```
 
 **CLI 速查（无配方时）**
@@ -57,7 +63,7 @@ python -m fastervla.deploy.cli run --mode shadow --kappa 1.4 --retimer qp \
 | `--retimer {uniform,qp}` | 选 `UniformRetimer` 或 `TimeAxisQP` |
 | `--qp-buffer-window` | `time_axis_qp.buffer_window_enabled` |
 | `--t-infer-min-s` / `--t-switch-min-s` | L1 墙钟节流 |
-| `--prefix-frames` / `--buffer-frames` | L1 **4+4 合块节流**（`execution_prefix_frames` / `execution_buffer_frames`；默认 4/4；`0` 关 prefix 门） |
+| `--prefix-frames` / `--buffer-frames` | L1 合块门（`execution_prefix_frames` / `execution_buffer_frames`；默认 **4/4** 兼容老 soft；**`prefix=0`** = 合并后立即下一轮推理，buffer 仅在 prefix>0 时作饿死提前放行） |
 | `--arm-chunk-filter` | 路径平滑：`none` / `zero_phase_dct` / `zero_phase_dct_cross`（默认 `none`；soft 用 `zero_phase_dct`） |
 | `--arm-filter-cutoff-hz` | ZP 截止频率（默认 `3`） |
 | `--arm-interp` | `PlanBuffer.reference`：`linear` / `pchip`（默认 `linear`；soft 用 `pchip`） |
@@ -129,11 +135,12 @@ retimer:
 inference:
   control_hz: 100.0
   rtc_mode: INPAINT
-  execution_prefix_frames: 4   # 合块门：接受后至少推进这么多模型帧再重规划；0=关
-  execution_buffer_frames: 4   # remaining_steps ≤ 此值时提前放行（防空缓冲）
+  execution_prefix_frames: 4   # 合块门：>0=接受后再走这么多帧才重规划（老 soft）；0=合并后立即推理
+  execution_buffer_frames: 4   # 仅 prefix>0：remaining_steps ≤ 此值时提前放行（防空缓冲）
   arm_chunk_filter: none       # none | zero_phase_dct | zero_phase_dct_cross
   arm_chunk_filter_cutoff_hz: 3.0
   arm_interpolation: linear    # linear | pchip
+  mpc_preview: linear          # 仅 tracker=mpc：linear | plan（真实预览参考）
   t_infer_min_s: 0.0
   t_switch_min_s: 0.0
   latency_margin_ms: 10.0
@@ -214,11 +221,12 @@ robot:
 | `control_hz` | `100` | 控制环频率 |
 | `policy_fps` | `30` | 与 `speed`/`retimer` 共用的策略帧率 |
 | `rtc_mode` | `INPAINT` | 开推 RTC 模式 |
-| `execution_prefix_frames` | `4` | 合块门：接受后至少推进这么多模型帧再重规划；`0` 关闭 |
-| `execution_buffer_frames` | `4` | `remaining_steps ≤` 此值时提前放行（防空缓冲） |
+| `execution_prefix_frames` | `4` | 合块门：`>0` 接受后再走这么多帧才重规划（老 soft 4+4）；`0` = RTC 稳态，合并后立即下一轮 |
+| `execution_buffer_frames` | `4` | 仅 `prefix>0`：`remaining_steps ≤` 此值时提前放行；`prefix=0` 时不参与节流 |
 | `arm_chunk_filter` | `none` | 推理后、Retimer 前对臂维做 ZP DCT |
 | `arm_chunk_filter_cutoff_hz` | `3` | ZP 截止（Hz） |
 | `arm_interpolation` | `linear` | `PlanBuffer.reference` 插值；`pchip` 对齐 soft |
+| `mpc_preview` | `linear` | 仅 `tracker: mpc`。MPC 时域参考：`linear` = 当前 r 线性插到前瞻 1 模型帧（旧行为）；`plan` = `PlanBuffer.reference_horizon` 在 \(t+k\cdot 10\)ms 的真实参考（N+1 点，含终端）。CLI `--mpc-preview`；A/B 配方 `h7_k1p4_qp_phase_mpc_ctrl_preview.yaml` |
 | `t_infer_min_s` | `0` | 两次推理之间最小墙钟间隔 |
 | `t_switch_min_s` | `0` | 两次换段（merge）最小间隔 |
 | `latency_margin_ms` | `10` | 估 \(\hat d\) 时叠在 r2r P95 上的裕量 |

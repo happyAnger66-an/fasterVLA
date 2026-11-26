@@ -259,13 +259,16 @@ class ArmMpcAcadosSolver:
             ai = ai.T
         if ai.shape[1] != nq:
             raise ValueError(f"ai_future last dim must be {nq}, got {ai.shape}")
+        # Rows 0..N-1 → stages; optional row N → terminal (else reuse row N-1).
         if ai.shape[0] < cfg.N:
             pad = np.repeat(ai[-1:, :], cfg.N - ai.shape[0], axis=0)
             ai = np.vstack([ai, pad])
         else:
-            ai = ai[: cfg.N]
+            ai = ai[: cfg.N + 1]
 
-        ai_use = np.repeat(q_hat.reshape(1, -1), cfg.N, axis=0) if contact_mode else ai
+        ai_use = (
+            np.repeat(q_hat.reshape(1, -1), ai.shape[0], axis=0) if contact_mode else ai
+        )
 
         self.x_aug[0:nq] = q_hat
         self.solver.set(0, "lbx", self.x_aug)

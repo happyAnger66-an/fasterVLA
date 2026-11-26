@@ -1,0 +1,2771 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("portal-theme");
+          if (t !== "light" && t !== "dark") t = "light";
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fasterVLA 执行栈：架构、原理与实现 · 执行加速 · Anger</title>
+    <meta
+      name="description"
+      content="fasterVLA 在 G2 羽毛球任务上的真实执行栈：异步推理 + RTC inpaint、PlanBuffer 模型步尺、TimeAxisQP 分段重定时、Lead 跟踪与接触护栏、Trace 与 URDF 限速利用率度量。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link id="portal-css" rel="stylesheet" href="/assets/portal.css" />
+    <script>
+      (function () {
+        if (/xiaoanger\.com$/.test(location.hostname)) return;
+        var css = document.getElementById("portal-css");
+        if (css) css.href = "http://www.xiaoanger.com/assets/portal.css";
+      })();
+    </script>
+    <style>
+      .article code { font-family: var(--mono); font-size: 0.85em; color: var(--accent); }
+      .article table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+        margin: 0.8rem 0 1.2rem;
+      }
+      .article th, .article td {
+        border: 1px solid var(--border);
+        padding: 0.45rem 0.55rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      .article th { background: var(--bg-card); }
+      .article .eq {
+        overflow-x: auto;
+        margin: 1rem 0;
+        padding: 0.85rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card);
+      }
+
+      .wrap:has(.doc-layout) {
+        width: min(1240px, calc(100% - 2rem));
+      }
+      .doc-layout {
+        display: grid;
+        grid-template-columns: 210px minmax(0, 1fr);
+        gap: 1.25rem 1.75rem;
+        align-items: start;
+      }
+      .side-toc {
+        position: sticky;
+        top: 1rem;
+        max-height: calc(100vh - 2rem);
+        overflow: auto;
+        padding: 0.85rem 0.7rem 1rem;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 0.84rem;
+        line-height: 1.35;
+        scrollbar-width: thin;
+      }
+      .side-toc .toc-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin: 0 0 0.55rem;
+        padding: 0 0.35rem;
+      }
+      .side-toc a {
+        display: block;
+        color: var(--text-muted);
+        text-decoration: none;
+        padding: 0.28rem 0.45rem;
+        border-radius: 6px;
+        border-left: 2px solid transparent;
+        margin-bottom: 1px;
+      }
+      .side-toc a.sub {
+        padding-left: 0.95rem;
+        font-size: 0.8rem;
+      }
+      .side-toc a:hover {
+        background: var(--accent-soft);
+        color: var(--text);
+      }
+      .side-toc a.active {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-left-color: var(--accent);
+        font-weight: 600;
+      }
+      .mobile-toc-bar {
+        display: none;
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.65rem;
+        padding: 0.55rem 0.75rem;
+        margin: 0 0 0.85rem;
+        background: color-mix(in srgb, var(--bg) 92%, transparent);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      .mobile-toc-bar button {
+        font: inherit;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.28rem 0.7rem;
+        cursor: pointer;
+      }
+      .mobile-toc-bar .cur {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .toc-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 12, 18, 0.45);
+        z-index: 40;
+      }
+      body.toc-open .toc-backdrop { display: block; }
+      @media (max-width: 960px) {
+        .doc-layout { grid-template-columns: 1fr; }
+        .mobile-toc-bar { display: flex; }
+        .side-toc {
+          position: fixed;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: min(280px, 86vw);
+          max-height: none;
+          z-index: 50;
+          border-radius: 0;
+          transform: translateX(-105%);
+          transition: transform 0.2s ease;
+          box-shadow: 8px 0 32px rgba(0,0,0,.18);
+        }
+        body.toc-open .side-toc { transform: translateX(0); }
+      }
+
+      .article .callout {
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        border-radius: 0 10px 10px 0;
+        padding: 1rem 1.1rem;
+        margin: 0 0 1.5rem;
+        background: var(--bg-card);
+      }
+      .article .open {
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.1rem;
+        margin: 0.8rem 0;
+        background: var(--bg-card);
+      }
+      .article .open h3 {
+        margin: 0 0 0.45rem;
+        font-size: 1rem;
+      }
+      .article pre.flow {
+        overflow-x: auto;
+        margin: 1rem 0 1.4rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card);
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        line-height: 1.55;
+        white-space: pre;
+      }
+      .article .note {
+        font-size: 0.88rem;
+        color: var(--text-muted);
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px dashed var(--border);
+      }
+      .article ul.compact li { margin: 0.25rem 0; }
+
+      /* 推理延迟交接：同一时间轴，不同阶段走过的步数不同 */
+      .kappa-anim {
+        margin: 1rem 0 1.4rem;
+        padding: 0.9rem 1rem 1.1rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-card);
+      }
+      .kappa-anim .ka-title {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 0.35rem;
+      }
+      .kappa-anim .ka-lead {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .kappa-anim .ka-stages {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0 0 0.85rem;
+      }
+      .kappa-anim .ka-stage {
+        font-size: 0.8rem;
+        padding: 0.28rem 0.65rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        background: transparent;
+      }
+      .kappa-anim .ka-stage.on {
+        color: var(--text);
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        font-weight: 600;
+      }
+      .kappa-anim .ka-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.25rem;
+        align-items: baseline;
+        margin: 0 0 0.55rem;
+        font-size: 0.88rem;
+      }
+      .kappa-anim .ka-meta strong { color: var(--text); }
+      .kappa-anim .ka-d {
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        color: #7cb87c;
+        font-weight: 650;
+      }
+      .kappa-anim .ka-phase-tag {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        color: #d4a05b;
+      }
+      .kappa-anim .ka-rail-lab {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin-bottom: 0.3rem;
+      }
+      .kappa-anim .ka-track {
+        position: relative;
+        display: flex;
+        height: 42px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 80%, #000 5%);
+        margin-bottom: 0.55rem;
+      }
+      .kappa-anim .ka-seg {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        color: var(--text-muted);
+        border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+        box-sizing: border-box;
+      }
+      .kappa-anim .ka-seg:last-child { border-right: none; }
+      .kappa-anim .ka-seg.in-L {
+        background: color-mix(in srgb, #5b9fd4 32%, transparent);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .kappa-anim .ka-seg.done {
+        background: color-mix(in srgb, #7cb87c 38%, transparent);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .kappa-anim .ka-window {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 0;
+        background: color-mix(in srgb, #d4a05b 18%, transparent);
+        border-left: 2px solid #d4a05b;
+        border-right: 2px solid #d4a05b;
+        pointer-events: none;
+        z-index: 2;
+        box-sizing: border-box;
+      }
+      .kappa-anim .ka-window .ka-w-lab {
+        position: absolute;
+        top: -1.05rem;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        color: #d4a05b;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .kappa-anim .ka-head {
+        position: absolute;
+        top: 50%;
+        width: 12px;
+        height: 12px;
+        margin: -6px 0 0 -6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+        z-index: 3;
+        pointer-events: none;
+      }
+      .kappa-anim .ka-cap {
+        margin: 0.55rem 0 0;
+        font-size: 0.86rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .kappa-anim .ka-ctrl {
+        display: flex;
+        gap: 0.45rem;
+        margin: 0 0 0.7rem;
+      }
+      .kappa-anim .ka-ctrl button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.28rem 0.7rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-elevated, var(--bg-card));
+        color: var(--text);
+        cursor: pointer;
+      }
+      .kappa-anim .ka-ctrl button.primary {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        color: var(--accent);
+      }
+
+      /* L3：参考轨迹 → 每拍下发指令 */
+      .l3-anim {
+        margin: 1rem 0 1.4rem;
+        padding: 0.9rem 1rem 1.1rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-card);
+      }
+      .l3-anim .l3-title {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 0.35rem;
+      }
+      .l3-anim .l3-lead {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .l3-anim .l3-ctrl {
+        display: flex;
+        gap: 0.45rem;
+        margin: 0 0 0.7rem;
+      }
+      .l3-anim .l3-ctrl button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.28rem 0.7rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-elevated, var(--bg-card));
+        color: var(--text);
+        cursor: pointer;
+      }
+      .l3-anim .l3-ctrl button.primary {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        color: var(--accent);
+      }
+      .l3-anim .l3-stages {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0 0 0.85rem;
+      }
+      .l3-anim .l3-stage {
+        font-size: 0.8rem;
+        padding: 0.28rem 0.65rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        background: transparent;
+      }
+      .l3-anim .l3-stage.on {
+        color: var(--text);
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        font-weight: 600;
+      }
+      .l3-anim .l3-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem 1.1rem;
+        margin: 0 0 0.7rem;
+        font-size: 0.88rem;
+      }
+      .l3-anim .l3-meta strong { color: var(--text); }
+      .l3-anim .l3-tick {
+        font-family: var(--mono);
+        color: #d4a05b;
+        font-weight: 650;
+      }
+      .l3-anim .l3-note { color: var(--text-muted); }
+      .l3-anim .l3-row {
+        margin: 0 0 0.65rem;
+      }
+      .l3-anim .l3-lab {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin-bottom: 0.28rem;
+      }
+      .l3-anim .l3-lab strong { color: var(--text); font-weight: 600; }
+      .l3-anim .l3-rail {
+        position: relative;
+        height: 44px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 80%, #000 5%);
+        overflow: hidden;
+      }
+      .l3-anim .l3-dots {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .l3-anim .l3-dot {
+        position: absolute;
+        top: 50%;
+        width: 10px;
+        height: 10px;
+        margin: -5px 0 0 -5px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+        border: 1.5px solid color-mix(in srgb, var(--border) 80%, var(--text-muted));
+        box-sizing: border-box;
+      }
+      .l3-anim .l3-dot.in-H {
+        background: color-mix(in srgb, #5b9fd4 70%, #fff 10%);
+        border-color: #5b9fd4;
+        box-shadow: 0 0 0 3px color-mix(in srgb, #5b9fd4 22%, transparent);
+      }
+      .l3-anim .l3-dot.past {
+        opacity: 0.35;
+      }
+      .l3-anim .l3-horizon {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: color-mix(in srgb, #5b9fd4 14%, transparent);
+        border-left: 2px solid #5b9fd4;
+        border-right: 2px solid #5b9fd4;
+        pointer-events: none;
+        z-index: 1;
+        box-sizing: border-box;
+      }
+      .l3-anim .l3-horizon .l3-h-lab {
+        position: absolute;
+        top: -1.05rem;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        color: #5b9fd4;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .l3-anim .l3-now {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        border-left: 2px dashed color-mix(in srgb, var(--accent) 70%, var(--border));
+        z-index: 2;
+        pointer-events: none;
+      }
+      .l3-anim .l3-cmd-ghost {
+        position: absolute;
+        top: 50%;
+        height: 3px;
+        margin-top: -1.5px;
+        background: linear-gradient(90deg,
+          color-mix(in srgb, #d4a05b 75%, transparent),
+          color-mix(in srgb, #d4a05b 18%, transparent));
+        border-radius: 2px;
+        z-index: 1;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      .l3-anim .l3-cmd-ghost.show { opacity: 1; }
+      .l3-anim .l3-y {
+        position: absolute;
+        top: 50%;
+        width: 14px;
+        height: 14px;
+        margin: -7px 0 0 -7px;
+        border-radius: 50%;
+        background: #d4a05b;
+        border: 2px solid color-mix(in srgb, #d4a05b 40%, #fff);
+        box-shadow: 0 0 0 3px color-mix(in srgb, #d4a05b 25%, transparent);
+        z-index: 4;
+        opacity: 0;
+        transform: scale(0.6);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+      .l3-anim .l3-y.show {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .l3-anim .l3-x {
+        position: absolute;
+        top: 50%;
+        width: 12px;
+        height: 12px;
+        margin: -6px 0 0 -6px;
+        border-radius: 50%;
+        background: #7cb87c;
+        box-shadow: 0 0 0 3px color-mix(in srgb, #7cb87c 25%, transparent);
+        z-index: 3;
+      }
+      .l3-anim .l3-qhat {
+        position: absolute;
+        top: 50%;
+        width: 10px;
+        height: 10px;
+        margin: -5px 0 0 -5px;
+        border-radius: 50%;
+        background: transparent;
+        border: 2px solid var(--accent);
+        z-index: 3;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      .l3-anim .l3-qhat.show { opacity: 1; }
+      .l3-anim .l3-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem 1rem;
+        margin: 0.15rem 0 0.55rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+      .l3-anim .l3-legend i {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 0.28rem;
+        vertical-align: -1px;
+      }
+      .l3-anim .l3-legend .lg-r { background: #5b9fd4; }
+      .l3-anim .l3-legend .lg-y { background: #d4a05b; }
+      .l3-anim .l3-legend .lg-x { background: #7cb87c; }
+      .l3-anim .l3-legend .lg-q {
+        background: transparent;
+        border: 2px solid var(--accent);
+        box-sizing: border-box;
+      }
+      .l3-anim .l3-cap {
+        margin: 0.55rem 0 0;
+        font-size: 0.86rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .l3-anim .l3-out {
+        margin: 0.55rem 0 0;
+        padding: 0.55rem 0.7rem;
+        border-radius: 8px;
+        border: 1px dashed color-mix(in srgb, #d4a05b 55%, var(--border));
+        background: color-mix(in srgb, #d4a05b 10%, transparent);
+        font-size: 0.9rem;
+      }
+      .l3-anim .l3-out strong {
+        font-family: var(--mono);
+        color: #d4a05b;
+      }
+      .l3-anim .l3-solve {
+        margin: 0.35rem 0 0.75rem;
+        padding: 0.65rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, #d4a05b 45%, var(--border));
+        background: color-mix(in srgb, #d4a05b 8%, transparent);
+        font-size: 0.86rem;
+        line-height: 1.55;
+        color: var(--text-muted);
+      }
+      .l3-anim .l3-solve.on {
+        color: var(--text);
+        border-color: color-mix(in srgb, #d4a05b 70%, var(--border));
+        background: color-mix(in srgb, #d4a05b 14%, transparent);
+      }
+      .l3-anim .l3-solve .l3-solve-title {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #d4a05b;
+        font-weight: 650;
+        margin-bottom: 0.35rem;
+      }
+      .l3-anim .l3-solve dl {
+        display: grid;
+        grid-template-columns: 4.2rem 1fr;
+        gap: 0.25rem 0.55rem;
+        margin: 0;
+      }
+      .l3-anim .l3-solve dt {
+        font-weight: 650;
+        color: var(--text);
+      }
+      .l3-anim .l3-solve dd {
+        margin: 0;
+      }
+
+      /* AcadosPlanner / OCP 工作原理动画 */
+      .ocp-anim {
+        margin: 1rem 0 1.4rem;
+        padding: 0.9rem 1rem 1.1rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-card);
+      }
+      .ocp-anim .ocp-title {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 0.35rem;
+      }
+      .ocp-anim .ocp-lead {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .ocp-anim .ocp-ctrl {
+        display: flex;
+        gap: 0.45rem;
+        margin: 0 0 0.7rem;
+        flex-wrap: wrap;
+      }
+      .ocp-anim .ocp-ctrl button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.28rem 0.7rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-elevated, var(--bg-card));
+        color: var(--text);
+        cursor: pointer;
+      }
+      .ocp-anim .ocp-ctrl button.primary {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        color: var(--accent);
+      }
+      .ocp-anim .ocp-stages {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0 0 0.85rem;
+      }
+      .ocp-anim .ocp-stage {
+        font-size: 0.8rem;
+        padding: 0.28rem 0.65rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+      }
+      .ocp-anim .ocp-stage.on {
+        color: var(--text);
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        font-weight: 600;
+      }
+      .ocp-anim .ocp-note {
+        margin: 0 0 0.75rem;
+        font-size: 0.88rem;
+        color: var(--text-muted);
+      }
+      .ocp-anim .ocp-flow {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr auto 1fr;
+        gap: 0.45rem;
+        align-items: stretch;
+        margin: 0 0 0.75rem;
+      }
+      @media (max-width: 720px) {
+        .ocp-anim .ocp-flow {
+          grid-template-columns: 1fr;
+        }
+        .ocp-anim .ocp-arrow { transform: rotate(90deg); justify-self: center; }
+      }
+      .ocp-anim .ocp-box {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+        background: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 85%, #000 4%);
+        opacity: 0.45;
+        transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+      }
+      .ocp-anim .ocp-box.on {
+        opacity: 1;
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+      .ocp-anim .ocp-box .t {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--accent);
+        font-weight: 650;
+        margin-bottom: 0.25rem;
+      }
+      .ocp-anim .ocp-box .b {
+        font-size: 0.82rem;
+        line-height: 1.45;
+        color: var(--text);
+      }
+      .ocp-anim .ocp-arrow {
+        align-self: center;
+        color: var(--text-muted);
+        font-size: 1.1rem;
+        opacity: 0.5;
+      }
+      .ocp-anim .ocp-arrow.on { opacity: 1; color: var(--accent); }
+      .ocp-anim .ocp-qp {
+        margin: 0 0 0.55rem;
+        padding: 0.65rem 0.75rem;
+        border-radius: 8px;
+        border: 1px dashed var(--border);
+        font-size: 0.86rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+      }
+      .ocp-anim .ocp-qp.on {
+        border-color: color-mix(in srgb, #d4a05b 60%, var(--border));
+        background: color-mix(in srgb, #d4a05b 10%, transparent);
+        color: var(--text);
+      }
+      .ocp-anim .ocp-qp strong {
+        font-family: var(--mono);
+        color: #d4a05b;
+      }
+      .ocp-anim .ocp-out {
+        margin: 0.45rem 0 0;
+        padding: 0.55rem 0.7rem;
+        border-radius: 8px;
+        border: 1px dashed color-mix(in srgb, #7cb87c 55%, var(--border));
+        background: color-mix(in srgb, #7cb87c 10%, transparent);
+        font-size: 0.9rem;
+      }
+      .ocp-anim .ocp-out strong {
+        font-family: var(--mono);
+        color: #7cb87c;
+      }
+      .ocp-anim .ocp-cap {
+        margin: 0.55rem 0 0;
+        font-size: 0.86rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+    
+      .article .impl-tag {
+        display: inline-block;
+        font-size: 0.75rem;
+        padding: 0.05rem 0.45rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        margin-left: 0.35rem;
+        vertical-align: middle;
+      }
+      .article .impl-tag.on { color: #7cb87c; border-color: #7cb87c; }
+      .article .impl-tag.exp { color: #d4a05b; border-color: #d4a05b; }
+      .article .impl-tag.off { color: #c97b6a; border-color: #c97b6a; }
+      .article .review {
+        border-left: 3px solid #d4a05b;
+        background: var(--bg-card);
+        padding: 0.6rem 0.9rem;
+        margin: 0.8rem 0 1.2rem;
+        border-radius: 6px;
+      }
+      .article .review strong { color: #d4a05b; }
+
+      /* prefix-lock anim — dual chunk rails */
+      .pl-anim {
+        margin: 1rem 0 1.4rem;
+        padding: 0.9rem 1rem 1.1rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-card);
+      }
+      .pl-anim .pl-title {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 0.35rem;
+      }
+      .pl-anim .pl-lead {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .pl-anim .pl-ctrl { display: flex; gap: 0.45rem; margin: 0 0 0.7rem; }
+      .pl-anim .pl-ctrl button {
+        font: inherit; font-size: 0.85rem; padding: 0.28rem 0.7rem;
+        border: 1px solid var(--border); border-radius: 6px;
+        background: var(--bg-elevated, var(--bg-card)); color: var(--text); cursor: pointer;
+      }
+      .pl-anim .pl-ctrl button.primary {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        color: var(--accent);
+      }
+      .pl-anim .pl-stages { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.85rem; }
+      .pl-anim .pl-stage {
+        font-size: 0.8rem; padding: 0.28rem 0.65rem; border-radius: 999px;
+        border: 1px solid var(--border); color: var(--text-muted); background: transparent;
+      }
+      .pl-anim .pl-stage.on {
+        color: var(--text);
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        font-weight: 600;
+      }
+      .pl-anim .pl-note {
+        margin: 0 0 0.85rem; font-size: 0.9rem; color: var(--text);
+        line-height: 1.55; min-height: 3.2em;
+      }
+      .pl-anim .pl-pair { display: grid; gap: 0.55rem; margin: 0 0 0.5rem; }
+      .pl-anim .pl-row {
+        display: grid; grid-template-columns: 72px 1fr; gap: 0.55rem; align-items: start;
+      }
+      .pl-anim .pl-row-lab {
+        font-family: var(--mono); font-size: 0.75rem; color: var(--text-muted);
+        padding-top: 1.35rem; line-height: 1.35;
+      }
+      .pl-anim .pl-row-lab strong {
+        display: block; color: var(--text); font-size: 0.82rem;
+      }
+      .pl-anim .pl-track-wrap { position: relative; padding-top: 1.15rem; }
+      .pl-anim .pl-bracket {
+        position: absolute; top: 0; height: 1.05rem; border: 1.5px solid;
+        border-bottom: none; border-radius: 6px 6px 0 0; box-sizing: border-box;
+        pointer-events: none; opacity: 0;
+        transition: opacity 0.25s ease, left 0.3s ease, width 0.3s ease;
+      }
+      .pl-anim .pl-bracket.on { opacity: 1; }
+      .pl-anim .pl-bracket .pl-b-lab {
+        position: absolute; top: -0.05rem; left: 50%; transform: translateX(-50%);
+        font-family: var(--mono); font-size: 0.62rem; white-space: nowrap;
+        padding: 0 0.25rem; background: var(--bg-card);
+      }
+      .pl-anim .pl-bracket.rtc { border-color: #5b9fd4; color: #5b9fd4; }
+      .pl-anim .pl-bracket.lock { border-color: #7cb87c; color: #7cb87c; }
+      .pl-anim .pl-bracket.bad { border-color: #c97b6a; color: #c97b6a; }
+      .pl-anim .pl-cells {
+        display: grid; grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 3px; position: relative;
+      }
+      .pl-anim .pl-cell {
+        border: 1px solid var(--border); border-radius: 5px;
+        background: var(--bg-elevated, var(--bg-card)); min-height: 52px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 1px; transition: background 0.3s ease, border-color 0.3s ease, opacity 0.3s ease;
+        position: relative;
+      }
+      .pl-anim .pl-cell .pl-idx { font-family: var(--mono); font-size: 0.62rem; color: var(--text-muted); }
+      .pl-anim .pl-cell .pl-dt { font-family: var(--mono); font-size: 0.72rem; font-weight: 650; color: var(--text); }
+      .pl-anim .pl-cell .pl-tag { font-size: 0.58rem; color: var(--text-muted); line-height: 1.1; }
+      .pl-anim .pl-cell.dim { opacity: 0.28; }
+      .pl-anim .pl-cell.past { background: color-mix(in srgb, var(--text-muted) 18%, transparent); }
+      .pl-anim .pl-cell.slow {
+        background: color-mix(in srgb, #d4a05b 28%, transparent);
+        border-color: color-mix(in srgb, #d4a05b 55%, var(--border));
+      }
+      .pl-anim .pl-cell.fast {
+        background: color-mix(in srgb, #5b9fd4 22%, transparent);
+        border-color: color-mix(in srgb, #5b9fd4 50%, var(--border));
+      }
+      .pl-anim .pl-cell.rtc-hit { box-shadow: inset 0 0 0 1.5px #5b9fd4; }
+      .pl-anim .pl-cell.dt-same {
+        box-shadow: inset 0 0 0 1.5px #7cb87c;
+        background: color-mix(in srgb, #7cb87c 26%, transparent);
+        border-color: #7cb87c;
+      }
+      .pl-anim .pl-cell.dt-bad {
+        box-shadow: inset 0 0 0 1.5px #c97b6a;
+        background: color-mix(in srgb, #c97b6a 28%, transparent);
+        border-color: #c97b6a;
+      }
+      .pl-anim .pl-cell.free {
+        background: color-mix(in srgb, #5b9fd4 35%, transparent);
+        border-color: color-mix(in srgb, #5b9fd4 65%, var(--border));
+      }
+      .pl-anim .pl-cell.empty {
+        opacity: 0; border-color: transparent; background: transparent; pointer-events: none;
+      }
+      .pl-anim .pl-head {
+        position: absolute; bottom: -11px; width: 0; height: 0;
+        border-left: 6px solid transparent; border-right: 6px solid transparent;
+        border-bottom: 8px solid var(--accent); transform: translateX(-50%);
+        transition: left 0.35s ease; z-index: 3; pointer-events: none;
+      }
+      .pl-anim .pl-links {
+        display: grid; grid-template-columns: 72px 1fr; gap: 0.55rem;
+        min-height: 1.1rem; margin: -0.15rem 0;
+      }
+      .pl-anim .pl-links-cells {
+        display: grid; grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 3px; text-align: center; font-family: var(--mono);
+        font-size: 0.7rem; color: #7cb87c; font-weight: 650;
+      }
+      .pl-anim .pl-links-cells span { opacity: 0; transition: opacity 0.25s ease; }
+      .pl-anim .pl-links-cells span.on { opacity: 1; }
+      .pl-anim .pl-links-cells span.bad { color: #c97b6a; }
+      .pl-anim .pl-legend {
+        display: flex; flex-wrap: wrap; gap: 0.65rem 1rem;
+        margin: 0.85rem 0 0; font-size: 0.8rem; color: var(--text-muted);
+      }
+      .pl-anim .pl-legend i {
+        display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+        margin-right: 0.3rem; vertical-align: -2px; border: 1px solid transparent;
+      }
+      .pl-anim .pl-cap {
+        margin: 0.7rem 0 0; font-size: 0.86rem; color: var(--text-muted); line-height: 1.55;
+      }
+
+      /* advance(10ms) · denser sample on same ruler */
+      .adv-anim {
+        margin: 1rem 0 1.4rem;
+        padding: 0.9rem 1rem 1.1rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-card);
+      }
+      .adv-anim .adv-title {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 0.35rem;
+      }
+      .adv-anim .adv-lead {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .adv-anim .adv-ctrl { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0 0 0.7rem; align-items: center; }
+      .adv-anim .adv-ctrl button {
+        font: inherit; font-size: 0.85rem; padding: 0.28rem 0.7rem;
+        border: 1px solid var(--border); border-radius: 6px;
+        background: var(--bg-elevated, var(--bg-card)); color: var(--text); cursor: pointer;
+      }
+      .adv-anim .adv-ctrl button.primary {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        color: var(--accent);
+      }
+      .adv-anim .adv-ctrl .adv-mode {
+        margin-left: auto; font-size: 0.82rem; color: var(--text-muted);
+      }
+      .adv-anim .adv-ctrl .adv-mode label { margin-right: 0.65rem; cursor: pointer; }
+      .adv-anim .adv-note {
+        margin: 0 0 0.75rem; font-size: 0.9rem; color: var(--text);
+        line-height: 1.55; min-height: 2.8em;
+      }
+      .adv-anim .adv-hud {
+        display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem;
+        margin: 0 0 0.65rem; font-family: var(--mono); font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+      .adv-anim .adv-hud strong { color: var(--text); font-weight: 650; }
+      .adv-anim svg.adv-stage {
+        display: block; width: 100%; height: auto;
+        border: 1px solid var(--border); border-radius: 8px;
+        background: color-mix(in srgb, var(--bg-elevated, var(--bg-card)) 70%, transparent);
+      }
+      .adv-anim .adv-legend {
+        display: flex; flex-wrap: wrap; gap: 0.65rem 1rem;
+        margin: 0.75rem 0 0; font-size: 0.8rem; color: var(--text-muted);
+      }
+      .adv-anim .adv-legend i {
+        display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+        margin-right: 0.3rem; vertical-align: -1px; border: 1.5px solid transparent;
+      }
+      .adv-anim .adv-cap {
+        margin: 0.7rem 0 0; font-size: 0.86rem; color: var(--text-muted); line-height: 1.55;
+      }
+
+    </style>
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [["\\(", "\\)"]],
+          displayMath: [["\\[", "\\]"]],
+          processEscapes: true
+        },
+        options: { skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"] },
+        svg: { fontCache: "global" },
+      };
+      (function () {
+        var urls = /xiaoanger\.com$/.test(location.hostname)
+          ? ["/assets/mathjax/tex-chtml.js"]
+          : [
+              "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js",
+              "https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.min.js"
+            ];
+        function load(i) {
+          if (i >= urls.length) return;
+          var s = document.createElement("script");
+          s.async = true;
+          s.src = urls[i];
+          s.onerror = function () { load(i + 1); };
+          document.head.appendChild(s);
+        }
+        load(0);
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="site-header">
+        <a class="brand" href="/">Anger</a>
+        <nav class="nav">
+          <a href="/topics/ai-system-performance/">AI Perf</a>
+          <a class="active" href="/topics/robot/">Robot</a>
+          <a href="/topics/perf-observability/">可观测性</a>
+          <a href="/topics/ai-native/">AI Native</a>
+          <a href="/wiki/">Wiki</a>
+          <a href="/blog/">Blog</a>
+          <button type="button" class="theme-toggle" data-theme-toggle>浅色</button>
+        </nav>
+      </header>
+      <main class="article">
+        <header class="page-head">
+          <div class="crumb">
+            <a href="/">首页</a> / <a href="/topics/robot/">Robot</a> /
+            <a href="/topics/robot/deploy/">推理部署</a> /
+            <a href="/topics/robot/deploy/execution/">执行加速</a> / fasterVLA 执行栈
+          </div>
+          <div class="pipeline-meta">
+            <span class="pipeline-index" style="color: #7cb87c">04</span>
+            <span class="pipeline-label">Implemented · Review</span>
+          </div>
+          <h1 class="page-title">fasterVLA 执行栈：架构、原理与实现</h1>
+          <p class="page-sub">
+            <a href="/topics/robot/deploy/execution/openpi-exec-plan/">真机部署加速方案</a>的落地版本。
+            本文只写<strong>代码里真实存在、h7 真机正在跑</strong>的部分：G2 羽毛球任务，默认工作点
+            \(\kappa=1.4\)，单球周期从 7.9&nbsp;s 压到 4.6&nbsp;s，一次夹取率 100%。
+          </p>
+        </header>
+        <div class="mobile-toc-bar" id="mobile-toc-bar">
+          <button type="button" id="toc-open-btn">目录</button>
+          <span class="cur" id="toc-cur">0 现状与边界</span>
+        </div>
+        <div class="toc-backdrop" id="toc-backdrop" hidden></div>
+        <div class="doc-layout">
+        <aside class="side-toc" id="side-toc" aria-label="本文目录">
+          <div class="toc-title">本文目录</div>
+          <a href="#s0">0 现状与边界</a>
+          <a href="#s1">1 延迟预算（实测）</a>
+          <a href="#s2">2 系统架构</a>
+          <a class="sub" href="#s2-arch">架构图</a>
+          <a class="sub" href="#s2-seq">一次推理周期</a>
+          <a class="sub" href="#s2-mods">模块与代码</a>
+          <a class="sub" href="#s2-layout">动作布局 24→21</a>
+          <a href="#s2b">2.1 L1 异步 + RTC</a>
+          <a class="sub" href="#s2b-ruler">PlanBuffer 模型步尺</a>
+          <a class="sub" href="#s2b-gate">4+4 重规划门控</a>
+          <a class="sub" href="#s2b-merge">inpaint 与合并</a>
+          <a href="#s2-l2">2.2 L2 TimeAxisQP</a>
+          <a class="sub" href="#s2-l2-pre">QP 前：ZP 低通</a>
+          <a class="sub" href="#s2-l2-opt">决策变量与目标</a>
+          <a class="sub" href="#s2-l2-cons">约束与护栏（怎么进 QP）</a>
+          <a class="sub" href="#pl-anim">前缀锁 · 小动画</a>
+          <a class="sub" href="#s2-l2-calib">均值标定的副作用</a>
+          <a class="sub" href="#s2-l2-play">播放：pchip</a>
+          <a href="#s2-l3">2.3 L3 端侧跟踪</a>
+          <a class="sub" href="#s2-l3-align">参考如何对齐控制拍</a>
+          <a class="sub" href="#adv-anim">advance · 小动画</a>
+          <a class="sub" href="#s2-l3-sample-err">采样切角误差与业界做法</a>
+          <a class="sub" href="#s2-l3-symbols">符号表</a>
+          <a class="sub" href="#s2-l3-lead">LeadTracker（默认）</a>
+          <a class="sub" href="#s2-l3-mpc">Acados MPC（实验）</a>
+          <a class="sub" href="#s2-l3-mpc-why">为何还要 MPC</a>
+          <a class="sub" href="#s2-l3-mpc-plant">植物模型与状态估计</a>
+          <a class="sub" href="#s2-l3-mpc-ocp">OCP：变量 / 代价 / 约束</a>
+          <a class="sub" href="#s2-l3-mpc-lead-box">约束超前量是什么</a>
+          <a class="sub" href="#s2-l3-mpc-vmax">关节限速在哪</a>
+          <a class="sub" href="#s2-l3-mpc-tick">MPC 每拍流程</a>
+          <a class="sub" href="#s2-l3-mpc-jerky">参考抖急时 · 规划控制分工</a>
+          <a class="sub" href="#s2-l3-tick">控制环每拍过程</a>
+          <a href="#s2c">2.4 L4 接触护栏</a>
+          <a href="#s3">3 训练侧</a>
+          <a href="#s4">4 Trace 与度量</a>
+          <a class="sub" href="#s4-util">URDF 限速利用率</a>
+          <a href="#s5">5 工作点与实测</a>
+          <a href="#s6">6 已知局限 / 待讨论</a>
+          <a href="#s7">7 代码锚点</a>
+        </aside>
+        <div class="doc-main">
+
+        <div class="callout">
+          <strong>一句话。</strong>
+          模型不动，改执行栈：推理线程串行跑 pi05 + <strong>服务端 RTC inpaint</strong>，客户端用
+          <code>PlanBuffer</code> 按「模型步」记账并只换后缀；每个新 chunk 先做 3&nbsp;Hz 零相位低通，再由
+          <code>TimeAxisQP</code> 只改每段时长（接触窗 1.0×、其余 1.4×）；100&nbsp;Hz 控制环用
+          <code>LeadTracker</code> 补伺服滞后，夹爪闭合时收紧 lead。全程写 trace，离线出阶段耗时、跟踪误差和 URDF 限速利用率。
+        </div>
+
+        <h2 id="s0">0 现状与边界</h2>
+        <ul class="compact">
+          <li><strong>机器人与任务：</strong>智元 G2（h7），羽毛球入筒；双臂 14 关节 + 双夹爪，关节位置控制，GDK <code>joint_servo_control</code>。</li>
+          <li><strong>模型：</strong>pi05，\(H=30\)，示教 30&nbsp;Hz（\(\Delta t_{\mathrm{demo}}=33.3\)&nbsp;ms），动作 24 维绝对关节位置；默认 <code>fast60_nvfp4_ep0</code>，openpi websocket <code>:8013</code>。</li>
+          <li><strong>频率：</strong>控制环 100&nbsp;Hz（<code>control_hz=100</code>）；推理串行，端到端 r2r 实测 ≈107–109&nbsp;ms，与 \(\kappa\) 无关。</li>
+          <li><strong>入口：</strong><code>fastervla-deploy run --config configs/deploy/&lt;recipe&gt;.yaml</code>；配方字段经 <code>deploy/recipe.py</code> 映射到 CLI，未接线字段直接拒绝。</li>
+          <li><strong>不做：</strong>不改 5090 推理服务、不 vendor openpi、不动老栈 <code>g2_tools/h7_deploy</code>。</li>
+        </ul>
+        <table>
+          <thead><tr><th>层</th><th>方案文里的设想</th><th>fasterVLA 现状</th></tr></thead>
+          <tbody>
+            <tr><td>L1 异步 + RTC</td><td>开推时 inpaint，只换后缀</td><td>已落地 <span class="impl-tag on">默认</span>；inpaint 在服务端，客户端只送 leftover / d̂ / 执行窗</td></tr>
+            <tr><td>L2 时间轴</td><td>路径不变只改快慢，速度盒约束</td><td><code>TimeAxisQP</code> 已落地 <span class="impl-tag on">默认</span>；但<strong>逐关节 v_max 未接到真机 CLI</strong>（见 <a href="#s6">§6</a>）</td></tr>
+            <tr><td>L3 端侧跟踪</td><td>OCP / MPC 把参考变指令</td><td>默认 <code>LeadTracker</code> <span class="impl-tag on">默认</span>；Acados SQP-RTI <span class="impl-tag exp">实验</span></td></tr>
+            <tr><td>L4 接触限速</td><td>检测接触后降速</td><td>没有在线接触检测；用夹爪命令<strong>预知</strong>接触窗，在 L2 限速 + L3 收 lead <span class="impl-tag on">默认</span>；<code>ContactMonitor</code>（F5）<span class="impl-tag off">未做</span></td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="s1">1 延迟预算（实测）</h2>
+        <p>推理期间机器人照常走。客户端用最近 32 次 r2r 的 p95 加 10&nbsp;ms 余量作延迟估计：</p>
+        <div class="eq">
+          \[
+          \hat L = \mathrm{p95}\big(\{L_{\mathrm{r2r}}\}_{32}\big) + 10\,\mathrm{ms}
+          \]
+        </div>
+        <p>
+          与方案文不同，冻结步数 \(\hat d\) <strong>不用</strong>固定 \(\Delta t\) 算，而是沿当前计划已重定时的 \(\mathrm{d}t_i\) 往前累加，覆盖到哪一段就数到哪一段（<code>PlanBuffer.estimate_delay_steps</code>）：
+        </p>
+        <div class="eq">
+          \[
+          \hat d = \min\Big\{k:\ \textstyle\sum_{i=p}^{p+k-1} \mathrm{d}t_i \ge \hat L\Big\}
+          \]
+        </div>
+        <table>
+          <thead><tr><th>工作点</th><th>帧时长 \(\mathrm{d}t\)</th><th>\(\hat L\approx 120\) ms 冻结</th><th>30 帧 chunk 墙钟</th><th>合并节奏（实测推算）</th></tr></thead>
+          <tbody>
+            <tr><td>R0 · 1.0× · 4+4</td><td>33.3&nbsp;ms</td><td>\(\hat d\approx 4\)</td><td>1.00&nbsp;s</td><td>133&nbsp;ms 门控 + 108&nbsp;ms r2r ≈ 4.1&nbsp;Hz（trace 实测 4.06&nbsp;Hz）</td></tr>
+            <tr><td>M4b · 搬运 1.4× · 4+4</td><td>23.8&nbsp;ms</td><td>\(\hat d\approx 6\)</td><td>≈0.71&nbsp;s</td><td>95&nbsp;ms 门控 + 108&nbsp;ms ≈ 4.9&nbsp;Hz</td></tr>
+            <tr><td>M4b · 搬运 1.4× · <code>prefix=0</code></td><td>23.8&nbsp;ms</td><td>\(\hat d\approx 6\)</td><td>≈0.71&nbsp;s</td><td>无门控空等；合块 ≈ r2r ≈ 9&nbsp;Hz（配方 <code>…_ctrl_0x4</code>）</td></tr>
+            <tr><td>M4b · 接触窗 1.0×</td><td>33.3&nbsp;ms</td><td>\(\hat d\approx 4\)</td><td>—</td><td>接触段时间轴放慢，冻结帧数随之变少</td></tr>
+          </tbody>
+        </table>
+        <p>
+          结论：推理不是瓶颈。默认 4+4 下每次合并约执行 8–9 帧（4 帧门控 + 约 4.5 帧推理期间）；
+          <code>prefix=0</code> 时门控空等去掉，稳态只执行推理那 \(\hat d\) 帧再换后缀。
+        </p>
+
+        <h2 id="s2">2 系统架构</h2>
+
+        <h3 id="s2-arch">架构图</h3>
+        <div class="diagram diagram-zoomable" id="arch-diagram">
+<svg class="arch-svg" viewBox="0 0 960 640" role="img" aria-label="fasterVLA 执行栈架构" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:960px;height:auto;display:block;margin:0 auto"><style>
+.lane{fill:var(--bg-card);stroke:var(--border);stroke-width:1}
+.box{fill:var(--bg-elevated);stroke:#5b9fd4;stroke-width:1.6}
+.box.store{stroke:#7cb87c}.box.ctrl{stroke:#d4a05b}.box.knob{stroke:#c97b6a;stroke-dasharray:5 3}
+.box.sense{stroke:var(--text-muted)}.box.exp{stroke:#d4a05b;stroke-dasharray:5 3}
+text{font-family:var(--font);text-anchor:middle}
+.t{font-size:12.5px;fill:var(--text)}.tb{font-size:13.5px;font-weight:600;fill:var(--text)}
+.lt{font-size:15px;font-weight:700;fill:var(--text)}.ls{font-size:12px;fill:var(--text-muted)}
+.lbl{font-size:11.5px;fill:var(--accent);paint-order:stroke;stroke:var(--bg-card);stroke-width:4px;stroke-linejoin:round}
+.ln{fill:none;stroke:var(--text-muted);stroke-width:1.5}.dash{stroke-dasharray:5 4}
+.ah{fill:var(--text-muted)}
+</style><defs><marker id="fah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect class="lane" x="8" y="10" width="190" height="620" rx="10"/><text class="lt" x="103" y="36">推理服务</text><text class="ls" x="103" y="55">openpi ws · :8013</text>
+<rect class="lane" x="208" y="10" width="250" height="620" rx="10"/><text class="lt" x="333" y="36">推理线程</text><text class="ls" x="333" y="55">fastervla-infer · 串行</text>
+<rect class="lane" x="468" y="10" width="200" height="620" rx="10"/><text class="lt" x="568" y="36">共享计划</text><text class="ls" x="568" y="55">RLock · 模型步尺</text>
+<rect class="lane" x="678" y="10" width="274" height="620" rx="10"/><text class="lt" x="815" y="36">控制环 100 Hz</text><text class="ls" x="815" y="55">主线程 · G2 GDK</text>
+<rect class="box" x="22" y="210" width="162" height="76" rx="8"/><text class="tb" x="103" y="236">pi05 fast60</text><text class="t" x="103" y="255">去噪 10 步</text><text class="t" x="103" y="273">+ RTC inpaint</text>
+<rect class="box knob" x="226" y="78" width="214" height="52" rx="8"/><text class="tb" x="333" y="100">合块门控</text><text class="t" x="333" y="119">默认 4+4 · 可 prefix=0</text>
+<rect class="box" x="226" y="154" width="214" height="62" rx="8"/><text class="tb" x="333" y="178">取观测 + 估 d̂</text><text class="t" x="333" y="198">L̂ = p95(r2r)+10ms，沿 dt 累加</text>
+<rect class="box" x="226" y="300" width="214" height="52" rx="8"/><text class="tb" x="333" y="322">ZP DCT 低通</text><text class="t" x="333" y="341">仅臂 14 维 · 3 Hz</text>
+<rect class="box ctrl" x="226" y="376" width="214" height="78" rx="8"/><text class="tb" x="333" y="400">TimeAxisQP</text><text class="t" x="333" y="420">只解每帧时长 dt_i</text><text class="t" x="333" y="439">接触窗 1.0× · 其余 1.4×</text>
+<rect class="box store" x="486" y="376" width="164" height="78" rx="8"/><text class="tb" x="568" y="400">PlanBuffer.merge</text><text class="t" x="568" y="420">progress ← 实际 d</text><text class="t" x="568" y="439">只换后缀 · plan_id+1</text>
+<rect class="box store" x="486" y="154" width="164" height="78" rx="8"/><text class="tb" x="568" y="178">PlanBuffer</text><text class="t" x="568" y="198">路点 + dt_i + progress</text><text class="t" x="568" y="216">reference() · pchip</text>
+<rect class="box sense" x="696" y="70" width="238" height="48" rx="8"/><text class="tb" x="815" y="90">G2 状态 / 3 路相机</text><text class="t" x="815" y="108">GDK 读取 · 时间戳</text>
+<rect class="box" x="696" y="136" width="238" height="56" rx="8"/><text class="tb" x="815" y="158">advance(10ms) → reference</text><text class="t" x="815" y="177">每拍调 PlanBuffer · pchip · 24→21</text>
+<rect class="box ctrl" x="696" y="210" width="114" height="88" rx="8"/><text class="tb" x="753" y="236">Lead</text><text class="t" x="753" y="255">默认</text><text class="t" x="753" y="273">闭爪收 lead</text>
+<rect class="box exp" x="820" y="210" width="114" height="88" rx="8"/><text class="tb" x="877" y="236">Acados MPC</text><text class="t" x="877" y="255">实验 · N=8</text><text class="t" x="877" y="273">失败→Lead</text>
+<text class="lbl" x="815" y="318">L3 跟踪（二选一）</text>
+<rect class="box" x="696" y="332" width="238" height="48" rx="8"/><text class="tb" x="815" y="352">软限位截断</text><text class="t" x="815" y="370">GDK joint limits · sat_excess</text>
+<rect class="box sense" x="696" y="398" width="238" height="48" rx="8"/><text class="tb" x="815" y="418">joint_servo_control</text><text class="t" x="815" y="436">50 ms 超时即报错</text>
+<rect class="box store" x="696" y="464" width="238" height="56" rx="8"/><text class="tb" x="815" y="486">TraceRecorder</text><text class="t" x="815" y="505">每拍 + 每 chunk · npz</text>
+<rect class="box sense" x="696" y="540" width="238" height="56" rx="8"/><text class="tb" x="815" y="562">LagStateEstimator</text><text class="t" x="815" y="581">仅 MPC：重放命令估 q̂</text>
+<path class="ln" d="M333,130 L333,152" marker-end="url(#fah)"/>
+<path class="ln" d="M226,185 C180,185 160,200 140,208" marker-end="url(#fah)"/><text class="lbl" x="168" y="176">obs + leftover + d̂</text>
+<path class="ln" d="M140,288 C160,300 190,326 224,326" marker-end="url(#fah)"/><text class="lbl" x="170" y="320">chunk 30×24</text>
+<path class="ln" d="M333,352 L333,374" marker-end="url(#fah)"/>
+<path class="ln" d="M440,415 L484,415" marker-end="url(#fah)"/>
+<path class="ln" d="M568,376 L568,234" marker-end="url(#fah)"/>
+<path class="ln dash" d="M486,193 L442,193" marker-end="url(#fah)"/><text class="lbl" x="464" y="180">progress</text>
+<path class="ln" d="M650,193 L694,164" marker-end="url(#fah)"/>
+<path class="ln dash" d="M815,118 L815,134" marker-end="url(#fah)"/>
+<path class="ln" d="M815,192 L815,208" marker-end="url(#fah)"/>
+<path class="ln" d="M753,298 L753,330" marker-end="url(#fah)"/>
+<path class="ln" d="M877,298 L877,330" marker-end="url(#fah)"/>
+<path class="ln" d="M815,380 L815,396" marker-end="url(#fah)"/>
+<path class="ln dash" d="M815,446 L815,462" marker-end="url(#fah)"/>
+<path class="ln dash" d="M815,520 L815,538" marker-end="url(#fah)"/>
+<path class="ln dash" d="M696,568 C560,568 500,240 486,220" marker-end="url(#fah)"/><text class="lbl" x="540" y="560">MPC 用</text>
+<path class="ln dash" d="M696,94 C560,94 470,120 442,175" marker-end="url(#fah)"/><text class="lbl" x="560" y="88">最新观测</text>
+</svg>
+        </div>
+
+        <h3 id="s2-seq">一次推理周期</h3>
+        <ol>
+          <li><strong>门控：</strong>默认 4+4：上次合并后再走满 4 帧（或剩余 ≤4）才发起；<code>prefix=0</code> 时跳过空等，合并完立刻开下一轮。</li>
+          <li><strong>估冻结：</strong>\(\hat L\) → \(\hat d\)；从 <code>floor(progress)</code> 起截出旧计划剩余路点作为 <code>prev_chunk_left_over</code>。</li>
+          <li><strong>推理：</strong>读最新状态与三路图像，发 <code>{leftover, inference_delay=d̂, execution_horizon=H−start}</code>；服务端做 RTC inpaint 去噪，返回 30×24 绝对关节路点。</li>
+          <li><strong>后处理：</strong>臂 14 维零相位 DCT 低通（3&nbsp;Hz）→ <code>TimeAxisQP</code> 解出 30 个 \(\mathrm{d}t_i\)，前 \(\hat d+2\) 帧时长锁成旧计划同位置的值（见 <a href="#pl-anim">前缀锁小动画</a>）。</li>
+          <li><strong>合并：</strong>按<strong>实际</strong>走过的帧数 \(d=\text{progress}-\text{anchor}\) 把执行点放进新 chunk 的第 \(d\) 帧，整段替换；记录交接跳变、重叠误差、r2r 分解。</li>
+          <li>控制环全程不停：每 10&nbsp;ms <code>advance</code> → <code>PlanBuffer.reference()</code>（默认 pchip）→ Lead 或 Acados MPC → 软限位 → 下发。</li>
+        </ol>
+
+        <h3 id="s2-mods">模块与代码</h3>
+        <table>
+          <thead><tr><th>职责</th><th>代码</th><th>要点</th></tr></thead>
+          <tbody>
+            <tr><td>运行编排 / 配方</td><td><code>deploy/cli.py</code> · <code>deploy/recipe.py</code></td><td>seed 一个 chunk 防止开场空缓冲；YAML → argparse 默认值，CLI 覆盖配方</td></tr>
+            <tr><td>推理线程 + 控制环</td><td><code>deploy/client/inference_loop.py</code></td><td>两线程共享 PlanBuffer；门控、估 d̂、RTC 载荷、合并、每拍跟踪</td></tr>
+            <tr><td>模型步尺</td><td><code>deploy/client/plan_buffer.py</code></td><td>progress 以「帧」为单位；advance / estimate_delay_steps / prefix / merge / reference</td></tr>
+            <tr><td>推理后端</td><td><code>deploy/backends/openpi_ws.py</code></td><td>启动校验服务端元数据（步数、动作形状、RTC）；只支持 <code>NONE</code> / <code>INPAINT</code></td></tr>
+            <tr><td>路径低通</td><td><code>deploy/postprocess/arm_chunk_filter.py</code></td><td>DCT 基最小二乘拟合后截断 &gt;3&nbsp;Hz 分量，零相位</td></tr>
+            <tr><td>时间轴</td><td><code>deploy/postprocess/retime.py</code></td><td><code>UniformRetimer</code>（匀速）/ <code>TimeAxisQP</code>（盒约束 QP，失败回退匀速）</td></tr>
+            <tr><td>插值</td><td><code>plan_buffer.reference</code> → <code>postprocess/pchip.py</code></td><td><strong>控制环每拍调用</strong>；以 \(\mathrm{d}t_i\) 累加墙钟为节点做单调三次插值（也可 linear）</td></tr>
+            <tr><td>跟踪 L3</td><td><code>tracker/lead.py</code> · <code>tracker/acados_mpc.py</code> · <code>estimator.py</code></td><td>同一拍二选一：默认 Lead；配方 <code>tracker: mpc</code> 走 Acados SQP-RTI（失败/超时回退 Lead）</td></tr>
+            <tr><td>机器人 IO</td><td><code>client/io/agibot_g2.py</code> · <code>gdk_real.py</code> · <code>layout.py</code></td><td>GDK 会话、关节软限位、伺服超时；24↔21 布局</td></tr>
+            <tr><td>Trace / 分析</td><td><code>client/recorder.py</code> · <code>deploy/analysis/*</code></td><td>每拍 / 每 chunk 落盘；<code>report</code> 出阶段耗时、跟踪质量、URDF 利用率</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="s2-layout">动作布局 24→21</h3>
+        <p>
+          策略输出 24 维：腰 5 + 头 3 + 左臂 7 + 右臂 7 + 双夹爪 2。下发 21 维：丢掉头 3 维，<strong>腰 5 维锁成开场实测值</strong>（不跟策略），
+          其余原样。所以 L2 / L3 只处理策略维 <code>[8:22]</code>（下发维 <code>[5:19]</code>）这 14 个臂关节，夹爪只参与「接触」判断与透传。
+        </p>
+
+        <h2 id="s2b">2.1 L1 异步推理 + RTC</h2>
+
+        <h3 id="s2b-ruler">PlanBuffer：以「模型帧」为单位的尺子</h3>
+        <p>
+          计划缓冲存三样：30 帧路点 \(p_0\ldots p_{29}\)、每帧时长 \(\mathrm{d}t_i\)、浮点进度 <code>progress</code>（单位是帧，不是秒）。
+          控制环每拍调用 <code>advance(10 ms)</code>：在第 \(i\) 段里前进 \(\Delta t/\mathrm{d}t_i\) 帧，跨段则扣掉剩余时间继续走。
+          这样「走了多少帧」与「走了多少秒」在变速时间轴下始终一致，\(\hat d\)、prefix、合并对齐都用同一把尺子。
+        </p>
+        <ul class="compact">
+          <li>空缓冲（progress 到头）时保持最后一帧，trace 记 <code>buffer_empty_hold</code>。</li>
+          <li>推理结果若已过期（\(d<0\)）或代际旧，<code>merge</code> 直接拒绝。</li>
+        </ul>
+
+        <h3 id="s2b-gate">重规划门控（4+4 兼容 · prefix=0 稳态）</h3>
+        <p>
+          两套节奏，配方/CLI 切换，互不破坏：
+        </p>
+        <ul class="compact">
+          <li><strong>默认 <code>prefix=4, buffer=4</code>（老 soft）：</strong>合并后再走满 4 帧才开下一轮；剩余 ≤4 帧提前放行。合块 ≈4–5&nbsp;Hz，A/B 对照用。</li>
+          <li><strong><code>prefix=0</code>（RTC 稳态）：</strong>结果一合并就开下一轮；冻结步数就是 \(\hat d\)。首包靠 seed，之后不再人为空等。
+            配方 <code>h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml</code>；CLI 也可 <code>--prefix-frames 0</code>。合块 ≈ r2r（~9&nbsp;Hz）。</li>
+        </ul>
+        <p>
+          <code>buffer_frames</code> 只在 <code>prefix&gt;0</code> 时作饿死提前放行；<code>prefix=0</code> 时不参与节流。
+          另有 <code>t_infer_min_s</code> / <code>t_switch_min_s</code>（默认 0）。合块更勤会抬交接跳，上真机要看一次率。
+        </p>
+
+        <h3 id="s2b-merge">inpaint 与合并</h3>
+        <p>
+          客户端不实现去噪，只把三样东西发给服务端：旧计划从当前帧起的剩余路点（不足 30 帧补零）、冻结步数 \(\hat d\)、执行窗 \(H-\text{start}\)。
+          服务端在去噪时把前 \(\hat d\) 帧引导向旧计划（RTC inpaint），新 chunk 的第 0 帧对齐旧计划的 <code>anchor_step</code>。
+        </p>
+        <p>
+          结果回来时机器人实际走了 \(d=\text{progress}-\text{anchor}\) 帧（可能与 \(\hat d\) 不同）。合并时直接把
+          <code>progress</code> 设为 \(d\)，整段替换路点与时长：前 \(d\) 帧是已执行的历史，之后才是新后缀。trace 同时记录：
+        </p>
+        <ul class="compact">
+          <li><code>overlap_gap</code>：重叠区旧 leftover 与新 chunk 前 \(\hat d\) 帧的最大差（inpaint 是否贴住）；</li>
+          <li><code>previous_command_difference</code>：新 chunk 首帧与上一拍已下发命令的跳变；</li>
+          <li><code>d_hat</code> / <code>d_actual</code>、r2r 拆分（取状态、取图、推理调用）。</li>
+        </ul>
+
+        <h2 id="s2-l2">2.2 L2 TimeAxisQP：路径不变，只改每帧时长</h2>
+        <div class="callout">
+          <strong>一句话。</strong>
+          每个新 chunk 解一个 30 维盒约束 QP：变量是每帧速率 \(s_i=1/\mathrm{d}t_i\)，路点不动。
+          默认配方下它退化成一个<strong>分段时间轴</strong>：夹爪动作附近 1.0×，其他帧 1.4×，段间速率跳变被加速度项抹平。
+        </div>
+
+        <h3 id="s2-l2-pre">QP 前：零相位低通</h3>
+        <p>
+          模型输出的臂轨迹带高频毛刺，直接加速会放大成抖动。先对臂 14 维做 DCT 最小二乘拟合，把频率高于 3&nbsp;Hz 的系数置零再重建（<code>arm_chunk_filter: zero_phase_dct</code>）。
+          整块拟合，没有相位延迟；腰、夹爪不滤。
+        </p>
+
+        <h3 id="s2-l2-opt">决策变量与目标</h3>
+        <p>
+          把当前实测臂姿 \(q_{\mathrm{meas}}\) 接在路点前面，得到 30 段位移 \(\Delta p_i\)（\(\Delta p_0=p_0-q_{\mathrm{meas}}\)）。
+          每段一个标量速率 \(s_i=1/\mathrm{d}t_i\)，各关节速度 \(v_i=s_i\Delta p_i\)。目标（<code>rate_hessian</code>）：
+        </p>
+        <div class="eq">
+          \[
+          \min_{s}\;
+          \underbrace{w_t\sum_i (s_i-\tilde s)^2}_{\text{贴近目标速率}}
+          +
+          \underbrace{w_a\sum_i\big\|s_{i+1}\Delta p_{i+1}-s_i\Delta p_i\big\|^2}_{\text{相邻段速度别跳}}
+          ,\quad
+          w_t=\frac{\lambda_t}{s_{\mathrm{ref}}^2},\;
+          w_a=\frac{\lambda_a}{\overline{\|\Delta p\|^2}\,s_{\mathrm{ref}}^2}
+          \]
+        </div>
+        <p>
+          \(s_{\mathrm{ref}}=30\kappa\)（\(\kappa=1.4\) 时 42&nbsp;帧/s）。
+          \(w_t,w_a\) 只是归一化：剥掉 \(s\) 和 \(\Delta p\) 的量纲，让 \(\lambda_t,\lambda_a\) 变成「更贴 ref，还是更平滑」的相对旋钮。
+          默认 \(\lambda_t=0.1,\ \lambda_a=1.0\) → <strong>更偏向相邻段平滑</strong>。
+          两项都是 \(s\) 的二次型，Hessian 三对角正定。求解：有界 active-set Newton，KKT 不满足再回退 L-BFGS-B；
+          整个 retime 抛异常则回退匀速 \(\mathrm{d}t=1/(30\kappa)\)，trace 记 <code>uniform_fallback</code>。
+        </p>
+
+        <h3 id="s2-l2-cons">约束与护栏（怎么进 QP）</h3>
+        <div class="callout">
+          <strong>已实现。</strong>
+          接触窗、搬运上限、帧时长盒、前缀锁都是对 \(s_i\) 的<strong>盒约束</strong>（改 <code>lower/upper</code>），
+          <strong>不进目标函数</strong>。代价只负责在盒子里拉向 \(s_{\mathrm{ref}}\) 并抹段间跳变；真正「不许超速」的是上界。
+        </div>
+        <p>组装顺序（<code>TimeAxisQP._retime</code>，与代码一致）：</p>
+        <ol>
+          <li>先用帧时长盒设 \(s\in[1/\mathrm{d}t_{\max},\,1/\mathrm{d}t_{\min}]\)；若接了逐关节 \(v_{\max}\)，再 \(\texttt{upper}\leftarrow\min(\texttt{upper},\,v_{\max}/|\Delta p|)\)。</li>
+          <li><strong>搬运上限</strong>（已接线）：全部帧 \(\texttt{upper}[i]\leftarrow\min(\texttt{upper}[i],\,30\,\kappa_{\mathrm{tr}})\)。默认 \(\kappa_{\mathrm{tr}}=\kappa=1.4\) → 全局 \(s\le 42\)。</li>
+          <li><strong>接触窗</strong>（已接线）：夹爪维 \(|\Delta\mathrm{grip}|&gt;0.08\) 记事件；事件左右各 \(\mathrm{win}=\max(12,\lceil 12\kappa\rceil)=17\) 帧打 <code>near</code>；\(\texttt{upper}[\texttt{near}]\leftarrow\min(\ldots,\,30\,\kappa_c)\)，\(\kappa_c=1.0\) → 窗内 \(s\le 30\)。</li>
+          <li><strong>前缀锁</strong>（已接线）：前 \(n=\hat d+2\) 帧 \(\texttt{lower}=\texttt{upper}=1/\mathrm{d}t^{\mathrm{old}}\)——与旧计划<strong>同位置 dt 一致</strong>（旧快则快，旧慢则慢），不是强制 1.0×。</li>
+          <li>在 \([\texttt{lower},\texttt{upper}]\) 上解二次目标；失败则匀速回退。</li>
+        </ol>
+        <table>
+          <thead><tr><th>约束</th><th>形式</th><th>默认配方（M4b）</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td>帧时长盒</td><td>\(\mathrm{d}t_i\in[15,80]\)&nbsp;ms</td><td>\(\kappa\in[0.42,2.22]\)</td><td><span class="impl-tag on">默认</span></td></tr>
+            <tr><td>逐关节限速</td><td>\(s_i\,|\Delta p_{i,j}|\le v_{\max,j}\)</td><td>CLI 未传 <code>v_max_rad_s</code></td><td><span class="impl-tag off">代码有·真机未接</span></td></tr>
+            <tr><td>接触窗</td><td>窗内 \(s_i\le 30\,\kappa_c\)</td><td>\(\kappa_c=1.0\)；grip_delta 0.08；窗 ×κ → 17 帧</td><td><span class="impl-tag on">默认</span></td></tr>
+            <tr><td>搬运上限</td><td>全部帧 \(s_i\le 30\,\kappa_{\mathrm{tr}}\)</td><td>\(\kappa_{\mathrm{tr}}=\kappa=1.4\)</td><td><span class="impl-tag on">默认</span></td></tr>
+            <tr><td>前缀锁</td><td>前 \(\hat d+2\) 帧 dt=旧计划同位置</td><td><code>prefix_lock</code> + <code>lock_extra=2</code></td><td><span class="impl-tag on">默认</span></td></tr>
+            <tr><td>停顿压缩</td><td>近静止非接触钉到 \(30\,\kappa_{\mathrm{dw}}\)</td><td>关闭（R3 否决）</td><td><span class="impl-tag off">已实现·默认关</span></td></tr>
+          </tbody>
+        </table>
+        <p>
+          效果：代价想往 \(30\kappa\) 拉，接触窗把夹/放附近上界压到 30，搬运上限把全局封在 42 → 常变成「接触 1.0× / 其余 1.4×」。
+          窗宽 ×κ：按帧计的窗口在高 κ 下墙钟会被压短；乘上 κ 后夹/放慢速段墙钟大致守恒。
+          grip_delta 0.08：避免夹爪微抖误触发、把整段拖慢。
+        </p>
+
+        
+        <div class="pl-anim playing" id="pl-anim" aria-label="RTC 与前缀锁：新旧 chunk 对照">
+          <p class="pl-title">RTC + 前缀锁 · 旧 / 新 chunk 对照</p>
+          <p class="pl-lead">
+            上下两条都是「帧序号 + 该帧时长 ms」。
+            新 chunk 第 0 帧对齐旧 chunk 的 anchor（开推时执行点）。
+            <strong>蓝框</strong> = RTC 对齐路点（前 d̂ 帧）；
+            <strong>绿框 / dt✓</strong> = 前缀锁：这些帧的 dt 与旧计划同位置相同（d̂+2）。
+          </p>
+          <div class="pl-ctrl">
+            <button type="button" class="primary" data-pl="toggle">暂停</button>
+            <button type="button" data-pl="prev">上一步</button>
+            <button type="button" data-pl="next">下一步</button>
+          </div>
+          <div class="pl-stages" aria-hidden="true">
+            <span class="pl-stage" data-stage="0">① 旧 chunk 在跑</span>
+            <span class="pl-stage" data-stage="1">② 开推：leftover + d̂</span>
+            <span class="pl-stage" data-stage="2">③ 新 chunk 到位（对照）</span>
+            <span class="pl-stage" data-stage="3">④ 若重叠区 dt 被改掉</span>
+            <span class="pl-stage" data-stage="4">⑤ 前缀锁：dt 钉成一致</span>
+          </div>
+          <p class="pl-note" data-pl="note">—</p>
+
+          <div class="pl-pair">
+            <div class="pl-row">
+              <div class="pl-row-lab"><strong>旧 chunk</strong>正在执行</div>
+              <div class="pl-track-wrap">
+                <div class="pl-bracket rtc" data-pl="old-rtc"><span class="pl-b-lab">leftover → RTC</span></div>
+                <div class="pl-bracket lock" data-pl="old-lock"><span class="pl-b-lab">锁区对齐的旧 dt</span></div>
+                <div class="pl-cells" data-pl="old-cells"></div>
+                <span class="pl-head" data-pl="head"></span>
+              </div>
+            </div>
+
+            <div class="pl-links">
+              <div></div>
+              <div class="pl-links-cells" data-pl="links"></div>
+            </div>
+
+            <div class="pl-row">
+              <div class="pl-row-lab"><strong>新 chunk</strong>推理结果</div>
+              <div class="pl-track-wrap">
+                <div class="pl-bracket rtc" data-pl="new-rtc"><span class="pl-b-lab">RTC：路点≈旧</span></div>
+                <div class="pl-bracket lock" data-pl="new-lock"><span class="pl-b-lab">前缀锁：dt=旧</span></div>
+                <div class="pl-bracket bad" data-pl="new-bad"><span class="pl-b-lab">错误：重叠区 dt 被改</span></div>
+                <div class="pl-cells" data-pl="new-cells"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pl-legend">
+            <span><i style="background:color-mix(in srgb,#d4a05b 28%,transparent);border-color:#d4a05b"></i>慢 dt≈33</span>
+            <span><i style="background:color-mix(in srgb,#5b9fd4 22%,transparent);border-color:#5b9fd4"></i>快 dt≈24</span>
+            <span><i style="box-shadow:inset 0 0 0 1.5px #5b9fd4"></i>RTC 路点对齐</span>
+            <span><i style="background:color-mix(in srgb,#7cb87c 26%,transparent);border-color:#7cb87c"></i>dt 与旧一致（锁）</span>
+            <span><i style="background:color-mix(in srgb,#c97b6a 28%,transparent);border-color:#c97b6a"></i>dt 被改乱</span>
+          </div>
+          <p class="pl-cap">
+            演示参数：anchor=3，d̂=4，lock_extra=2 → 锁 6 帧。
+            新[0..3] ↔ 旧[3..6]：RTC 管姿势；新[0..5] ↔ 旧[3..8]：前缀锁令 dt 相同。
+            中间「dt✓ / dt✗」标的就是锁区里新旧是否一致。新[6..] 才是 QP 可改后缀。
+          </p>
+        </div>
+
+        <div class="callout">
+          <strong>和「几乎跑不到后缀」的关系。</strong>
+          30 帧 chunk 不是「整段播完再推理」。稳态下每次合并大约只<strong>新执行</strong> \(\hat d\) 量级的帧（推理期间走过的那些），其余后缀是给下一轮 RTC 当 leftover 的规划地平线。
+          <ul class="compact">
+            <li><code>prefix=0</code>（合并后立刻再推）：一轮 ≈ r2r。合并后 progress 已在 ~\(\hat d\)，锁区是 \([0,\hat d+2)\)，所以本轮推理期间多半还在锁区边缘，只能啃到一点点已解锁的 1.4× 后缀。</li>
+            <li><code>prefix=4</code>（4+4）：合并后再故意走 4 帧才开推 → 这 4 帧往往已经出锁区，加上推理期间的 \(\hat d\) 帧，<strong>每轮能多吃一段 1.4× 后缀</strong>。合块更稀，但「加速帧」占比可能更高。</li>
+          </ul>
+          加速来自「你实际播到的那些帧的 \(\mathrm{d}t\) 更短 / 路点更疏」，不是来自「把 30 帧全跑完」。前缀锁不取消加速，只禁止改重叠区节拍；没有 prefix 门控也不会变成「完全无加速」，但解锁后缀的墙钟占比会变小——这正是 0x4 要上真机看交接跳与体感的原因。
+        </div>
+
+        <h3 id="s2-l2-calib">均值标定的副作用（为什么 transport 必须 = κ）</h3>
+        <p>
+          QP 的目标速率 \(\tilde s\) 不是直接取 \(s_{\mathrm{ref}}\)，而是迭代标定：使可自由调节的帧的调和平均速率等于 \(s_{\mathrm{ref}}\)
+          （<code>_calibrated_rates</code>，最多 8 轮，\(\tilde s\in[0.5,4]\,s_{\mathrm{ref}}\)）。
+          接触窗被压到 1.0× 后，平均速率达不到 1.4×，标定就会把 \(\tilde s\) 抬高，<strong>把接触段省下的时间加到搬运/放球段上</strong>。
+        </p>
+        <ul class="compact">
+          <li>\(\kappa_{\mathrm{tr}}\) 留余量（1.5 / 1.8）时：实际 κ p95 Seek2 为 1.50、R4 冲到 1.80；搬运/放球出尖峰，体感晃、打桌，盲目 1.4（M4）一次率约 89%。</li>
+          <li>护栏版（M4b）：\(\kappa_{\mathrm{tr}}=\kappa\)，抬高的 \(\tilde s\) 被上限截住，结果就是「接触 1.0× / 其余 1.4×」两档，κ p95 = 1.43（封顶生效）。</li>
+        </ul>
+
+        <h3 id="s2-l2-play">播放：控制环里的 pchip</h3>
+        <p>
+          插值发生在控制环，不在推理线程。细节见下一节
+          <a href="#s2-l3-align">「参考如何对齐控制拍」</a>：先 <code>advance(10 ms)</code> 再 <code>reference()</code>（默认 pchip）。
+        </p>
+
+        <h2 id="s2-l3">2.3 L3 端侧跟踪：把参考变成指令</h2>
+        <p>
+          这一层只做一件事：把 PlanBuffer 在<strong>本控制拍</strong>上采到的参考位置，变成发给伺服的命令。
+          默认 Lead；可选 Acados MPC。先把「重定时后的模型帧」怎么对齐到 100&nbsp;Hz 说清楚，再进符号表与跟踪器。
+        </p>
+
+        <h3 id="s2-l3-align">参考如何对齐控制拍（密/稀都靠同一把尺子）</h3>
+        <div class="callout">
+          <strong>两套节拍。</strong>
+          L2 给出的是<strong>模型帧</strong>路点 \(p_0,\ldots,p_{29}\) 和每帧墙钟时长 \(\mathrm{d}t_i\)（接触 ~33&nbsp;ms，搬运 ~24&nbsp;ms，也可被盒约束拉到 15–80&nbsp;ms）。
+          控制环是固定 <strong>10&nbsp;ms</strong> 一拍。两者一般对不齐：控制往往比模型帧<strong>更密</strong>（一帧路点要采好几拍）；若某段 \(\mathrm{d}t_i\) 短于 10&nbsp;ms 则会更稀（一拍跨过不止一帧）。
+          对齐不靠重采样整条轨迹，而靠 PlanBuffer 的<strong>模型步尺</strong>：progress 用「帧」计数，墙钟通过当前段的 \(\mathrm{d}t_i\) 换算。
+        </div>
+
+        <p><strong>① 推进（<code>advance(10 ms)</code>）</strong>——把控制拍的墙钟，换成进度上走多少帧：</p>
+        <div class="eq">
+          \[
+          \Delta\mathrm{progress}
+          =
+          \frac{10\,\mathrm{ms}}{\mathrm{d}t_{i}}
+          \quad(\text{停在第 } i \text{ 段内时})
+          \]
+        </div>
+        <p>
+          跨段则扣掉本段剩余墙钟，用下一段 \(\mathrm{d}t_{i+1}\) 继续。例子（都在默认工作点附近）：
+        </p>
+        <table>
+          <thead><tr><th>当前段 \(\mathrm{d}t_i\)</th><th>含义</th><th>每拍推进</th><th>相对控制</th></tr></thead>
+          <tbody>
+            <tr><td>33.3&nbsp;ms（1.0× / 接触）</td><td>示教节拍</td><td>\(10/33.3\approx 0.30\) 帧</td><td>控制更密：约 3.3 拍才走完 1 模型帧</td></tr>
+            <tr><td>23.8&nbsp;ms（1.4× 搬运）</td><td>加速后</td><td>\(10/23.8\approx 0.42\) 帧</td><td>仍更密：约 2.4 拍 / 模型帧</td></tr>
+            <tr><td>15&nbsp;ms（\(\mathrm{d}t_{\min}\)）</td><td>盒下界</td><td>\(10/15\approx 0.67\) 帧</td><td>仍更密：约 1.5 拍 / 模型帧</td></tr>
+            <tr><td>&lt;10&nbsp;ms（若允许）</td><td>极短段</td><td>&gt;1 帧/拍</td><td>控制更稀：一拍跨过多帧，插值仍给出中间姿态</td></tr>
+          </tbody>
+        </table>
+        <p>
+          默认 \(\mathrm{d}t_{\min}=15\)&nbsp;ms，所以真机上控制几乎总是<strong>密于</strong>模型帧；「稀」主要是概念边界，或将来放宽 dt 盒时才会碰到。
+        </p>
+
+        <p><strong>② 取参考（<code>reference()</code>）</strong>——progress 一般是小数（如 7.42），落在路点 \(p_7\) 与 \(p_8\) 之间：</p>
+        <ul class="compact">
+          <li><code>linear</code>：按段内比例 lerp；</li>
+          <li><code>pchip</code>（默认）：用 \(\mathrm{d}t_i\) 累加出的墙钟当节点做单调三次插值，不过冲、一阶连续。</li>
+        </ul>
+        <p>
+          得到本拍 24 维参考 → 映射 21 维（腰锁定）→ 这才是 L3 看到的 \(r\)。
+          Lead / MPC <strong>不关心</strong>「现在是第几模型帧」；它们每 10&nbsp;ms 吃一个 \(r\)（以及前瞻 \(r_{+1},\dot r\)），按控制节拍出命令。
+        </p>
+
+        <div class="callout">
+          <strong>是不是「更密采样」？</strong>
+          <strong>效果上是</strong>——每 10&nbsp;ms 在同一条连续参考曲线上取一个点，比模型路点更密。
+          <strong>实现上不是</strong>——并没有把 30 个路点重采样成 100&nbsp;Hz 的新数组；队列仍是 \(p_i+\mathrm{d}t_i\)，只靠小数 <code>progress</code> + 插值现场取点（见下动画）。
+          <br /><br />
+          <strong>绿点不一定落在棕点上。</strong>
+          连续参考曲线（棕折线 / pchip）<em>经过</em>每个 \(p_i\)；但控制只在拍上取点，\(\Delta\mathrm{progress}=10/\mathrm{d}t_i\) 从 0 起常踩不到整数（如 0.3, 0.6, …, 1.8, 2.1），于是没有一拍的 \(r\) 恰好等于 \(p_2\)。
+          尖角处相邻两拍的命令弦会<strong>轻微切角</strong>——这是离散下发，不是 PlanBuffer 把路点改掉了。
+        </div>
+
+        <div class="adv-anim" id="adv-anim" aria-label="advance 如何在参考轨迹上取密采样">
+          <p class="adv-title">advance · 小动画</p>
+          <p class="adv-lead">
+            横轴是<strong>墙钟</strong>：TimeAxisQP 后各段 \(\mathrm{d}t_i\) 有大有小，棕点间距就不均匀（接触段宽、搬运段窄）。
+            绿点仍每 10&nbsp;ms 一拍；宽段上绿点更密（Δprogress 更小）。
+          </p>
+          <div class="adv-ctrl">
+            <button type="button" class="primary" data-adv="toggle">播放</button>
+            <button type="button" data-adv="step">单步 +10ms</button>
+            <button type="button" data-adv="reset">复位</button>
+            <span class="adv-mode">
+              <label><input type="radio" name="adv-dt" value="qp" checked /> QP 非均匀</label>
+              <label><input type="radio" name="adv-dt" value="uniform" /> 均匀 33.3&nbsp;ms</label>
+            </span>
+          </div>
+          <p class="adv-note" data-adv="note">待命：默认已是 QP 非均匀 dt。点播放看宽段（慢）绿点密、窄段（快）绿点疏。</p>
+          <div class="adv-hud">
+            <span>墙钟 <strong data-adv="t">0</strong>&nbsp;ms</span>
+            <span>progress <strong data-adv="p">0.00</strong></span>
+            <span>本拍 Δp <strong data-adv="dp">—</strong></span>
+            <span>当前段 dt <strong data-adv="dti">—</strong>&nbsp;ms</span>
+            <span>拍数 <strong data-adv="n">0</strong></span>
+          </div>
+          <svg class="adv-stage" data-adv="svg" viewBox="0 0 720 228" role="img" aria-label="非均匀 dt 下的 advance 采样"></svg>
+          <div class="adv-legend">
+            <span><i style="background:#c4a574;border-color:#c4a574"></i>模型路点 \(p_i\)</span>
+            <span><i style="background:#d4a05b;border-color:#d4a05b;border-radius:2px"></i>慢段（dt 大）</span>
+            <span><i style="background:#5b9fd4;border-color:#5b9fd4;border-radius:2px"></i>快段（dt 小）</span>
+            <span><i style="background:#3d9b6e;border-color:#3d9b6e"></i>本拍参考 \(r\)</span>
+            <span><i style="background:transparent;border-color:#9aa3ad;border-radius:0;width:14px;height:0;border-top:1.5px dashed #9aa3ad;vertical-align:3px"></i>命令弦</span>
+          </div>
+          <p class="adv-cap">
+            路点几何不变，只改段时长 → 墙钟轴上棕点「挤」或「拉开」。
+            绿点仍可能踩空整数帧；真下发的是绿点序列（再经 Lead/MPC）。RTC / merge 仍按模型帧接。
+          </p>
+        </div>
+
+        <h4 id="s2-l3-sample-err">踩空路点会不会引入轨迹误差？业界怎么做</h4>
+        <p>
+          会，但量级很小。离散下发 + 伺服在相邻命令间插值，真实走的是「绿点弦」。弦与参考曲线的最大偏差：
+        </p>
+        <ul class="compact">
+          <li><strong>折线尖角</strong>（动画里的 linear 示意，最坏情况）：\(e\le |v_{\text{前}}-v_{\text{后}}|\,T_s/4\)。
+            关节速度 ±1&nbsp;rad/s 反向、\(T_s=10\)&nbsp;ms → 约 5&nbsp;mrad（0.3°）。</li>
+          <li><strong>光滑曲线</strong>（真实默认）：\(e\approx a\,T_s^2/8\)。臂已过 3&nbsp;Hz ZP 低通，pchip 在路点处一阶连续，没有尖角；
+            幅值 0.3&nbsp;rad 的 3&nbsp;Hz 分量 \(a\approx 106\)&nbsp;rad/s² → 约 1&nbsp;mrad。</li>
+          <li>对比：伺服滞后 \(\tau\approx 57\)&nbsp;ms 在 1&nbsp;rad/s 下的跟踪差约 57&nbsp;mrad，大一个数量级以上；所以采样切角不是瓶颈。</li>
+        </ul>
+        <p>
+          另外，30&nbsp;Hz 模型路点本身就是策略输出的离散样本，不是「必须精确经过的工艺点」；折线尖角是插值方式的产物，不是策略想要的形状。
+        </p>
+        <p><strong>业界做法</strong>（按场景）：</p>
+        <table>
+          <thead><tr><th>手段</th><th>典型场景</th><th>本仓现状</th></tr></thead>
+          <tbody>
+            <tr><td>先把参考做光滑（样条、低通、B 样条）</td><td>通用机器人、学习策略部署</td><td>已做：ZP 3&nbsp;Hz + pchip</td></tr>
+            <tr><td>提高下发频率（1&nbsp;kHz EtherCAT）或驱动器内插值（CiA 402 插补位置模式、PVT 三次 Hermite）</td><td>工业臂、伺服驱动</td><td>控制环 100&nbsp;Hz；驱动侧插值取决于 G2 固件</td></tr>
+            <tr><td>拐角融合（ABB zone、UR blend radius、CNC G64）——<em>主动</em>允许切角，换速度不停顿</td><td>示教路径、CNC</td><td>不需要：本来就不要求经过路点</td></tr>
+            <tr><td>精确停点（ABB fine point、CNC G61）：在该点减速到 0，或把节点时刻对齐到控制拍整数倍</td><td>焊点、装配必须到位</td><td>未做；若要可把 \(\mathrm{d}t_i\) 量化到 10&nbsp;ms 倍数，但会限制 κ</td></tr>
+            <tr><td>速度/力前馈 + MPC 跟踪连续参考</td><td>高动态跟踪</td><td>Lead 前瞻 / Acados MPC（实验）</td></tr>
+          </tbody>
+        </table>
+        <p>
+          结论：学习策略部署（ACT / Diffusion Policy / π0 一类）一般选第一种：把参考做光滑后按控制频率采样，不追求经过每个模型帧；
+          真正要精确到位的接触时刻，由接触窗把 \(\mathrm{d}t\) 拉慢（采样更密）+ L4 护栏处理。
+        </p>
+
+        <p><strong>③ 和 L2 的分工</strong></p>
+        <table>
+          <thead><tr><th>层</th><th>产出</th><th>节拍</th></tr></thead>
+          <tbody>
+            <tr><td>L2 TimeAxisQP</td><td>路点形状不变，只改各帧 \(\mathrm{d}t_i\)</td><td>每个新 chunk 解一次（推理线程）</td></tr>
+            <tr><td>PlanBuffer</td><td>用 \(\mathrm{d}t_i\) 把墙钟 ↔ 帧进度；插值出连续 \(r(t)\)</td><td>控制环每拍</td></tr>
+            <tr><td>L3 Lead / MPC</td><td>\(r\to y\)（补偿滞后 / 盒约束）</td><td>控制环每拍 100&nbsp;Hz</td></tr>
+          </tbody>
+        </table>
+        <p>
+          所以：κ 变了、接触窗把某段拉慢了，都只改 \(\mathrm{d}t_i\)；控制环仍 10&nbsp;ms 一拍，靠 advance 自动在「密段」走得帧进度慢、在「快段」走得帧进度快，参考始终对齐当前墙钟。
+        </p>
+
+        <h3 id="s2-l3-symbols">符号表</h3>
+        <table>
+          <thead><tr><th>符号</th><th>念法 / 单位</th><th>是什么</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>\(r\)</td>
+              <td>参考，rad</td>
+              <td>本拍从 PlanBuffer pchip 插出来的臂目标位置（命令布局里的臂 14 维）。「理想上关节该在哪」。</td>
+            </tr>
+            <tr>
+              <td>\(r_{+1}\)</td>
+              <td>前瞻参考，rad</td>
+              <td>再往前约 1 个模型帧的参考位置。Lead / MPC 用来看「下一小段要往哪走」。</td>
+            </tr>
+            <tr>
+              <td>\(\dot r\)</td>
+              <td>参考速度，rad/s</td>
+              <td>当前模型帧内参考的差分速度 \((r_{+1}-r)/\mathrm{d}t\)。</td>
+            </tr>
+            <tr>
+              <td>\(q\)</td>
+              <td>关节位置，rad</td>
+              <td>植物（伺服）的真实/模型关节角。公式里的 \(q^{+}\) 表示下一拍的关节角。</td>
+            </tr>
+            <tr>
+              <td>\(\hat q\)</td>
+              <td>估计关节角，rad</td>
+              <td>不是原始编码器读数，而是 <code>LagStateEstimator</code> 用「旧观测 + 已发命令」重放出来的「现在关节大概在哪」。MPC 的起点。</td>
+            </tr>
+            <tr>
+              <td>\(y\)</td>
+              <td>命令，rad</td>
+              <td>本拍要发给伺服的臂位置指令。Lead：\(y=r+\ell\)；MPC：优化出来的 \(y\)。</td>
+            </tr>
+            <tr>
+              <td>\(y^{-},\ y^{--}\)</td>
+              <td>上一拍 / 上上拍命令</td>
+              <td>历史命令，用来算命令变化率 \(\Delta y\) 和命令加速度 \(\Delta^2 y\)。</td>
+            </tr>
+            <tr>
+              <td>\(\ell,\ \bar\ell\)</td>
+              <td>超前量，rad</td>
+              <td>Lead 在参考上多加的那一截：\(\ell\) 是本拍算出来的，\(\bar\ell\) 是 EMA 平滑后的。正值 = 命令比参考更靠前。</td>
+            </tr>
+            <tr>
+              <td>\(\ell_{\max}\)</td>
+              <td>超前限幅，rad</td>
+              <td>\(|\ell|\) 不能超过这个值。默认 0.10；右夹爪闭合时降到 0.05，避免持球晃。</td>
+            </tr>
+            <tr>
+              <td>\(g\)</td>
+              <td>增益，无量纲</td>
+              <td>Lead 公式里「目标超前」乘多少再加到参考上。默认 0.35。</td>
+            </tr>
+            <tr>
+              <td>\(\tau\)</td>
+              <td>滞后时间常数，s</td>
+              <td>伺服一阶滞后模型里的 τ。Lead 默认补偿用 90&nbsp;ms；MPC 植物模型用 57&nbsp;ms（辨识值）。</td>
+            </tr>
+            <tr>
+              <td>\(\tau_s\)</td>
+              <td>平滑时间常数，s</td>
+              <td>只用于 Lead：把 \(\ell\) 做成 EMA，默认 40&nbsp;ms，减少拍间抖。</td>
+            </tr>
+            <tr>
+              <td>\(\alpha\)</td>
+              <td>EMA 系数</td>
+              <td>\(\alpha=1-e^{-\Delta t/\tau_s}\)，控制平滑有多快跟上新的 \(\ell\)。</td>
+            </tr>
+            <tr>
+              <td>\(\Delta t\)</td>
+              <td>控制周期，s</td>
+              <td>固定 10&nbsp;ms（100&nbsp;Hz）。</td>
+            </tr>
+            <tr>
+              <td>\(a\)</td>
+              <td>离散滞后系数</td>
+              <td>\(a=e^{-\Delta t/\tau}\)。下一拍 \(q^{+} = a\,q + (1-a)\,y\)：命令 \(y\) 按这个比例把关节往自己拉。</td>
+            </tr>
+            <tr>
+              <td>\(N\)</td>
+              <td>预测步数</td>
+              <td>MPC 往前看几拍。默认 8 → 80&nbsp;ms 窗。</td>
+            </tr>
+            <tr>
+              <td>\(y_k,\ y_0\)</td>
+              <td>窗内第 \(k\) 步命令</td>
+              <td>MPC 一次解出整窗命令，但只把第一步 \(y_0\) 发给机器人（RTI）。</td>
+            </tr>
+            <tr>
+              <td>\(\Delta y\)</td>
+              <td>命令步长，rad</td>
+              <td>\(y - y^{-}\)：相邻两拍命令差了多少。硬限制默认 ≤0.05&nbsp;rad/拍。</td>
+            </tr>
+            <tr>
+              <td>\(\Delta^2 y\)</td>
+              <td>命令二阶差，rad</td>
+              <td>\(y - 2y^{-} + y^{--}\)：命令变化率的变化，用来压尖、减抖。</td>
+            </tr>
+            <tr>
+              <td>\(v_{\max}\)</td>
+              <td>关节速度上限，rad/s</td>
+              <td>出现在约束 \(|y-\hat q|\le\tau v_{\max}\) 里。默认 50（几乎不起作用）；URDF 真限速约 3。</td>
+            </tr>
+            <tr>
+              <td>\(q_{\min},q_{\max}\)</td>
+              <td>关节位置盒，rad</td>
+              <td>命令 \(y\) 不能超出的位置范围。默认 \(\pm\pi\)；真机可换成 GDK 软限位。</td>
+            </tr>
+            <tr>
+              <td>\(w_{\mathrm{ddy}}\)</td>
+              <td>软权重</td>
+              <td>代价里惩罚 \(\Delta^2 y\) 的权重，默认 10。越大命令越「圆」。</td>
+            </tr>
+            <tr>
+              <td>\(\kappa\)</td>
+              <td>执行倍速</td>
+              <td>相对示教 30&nbsp;Hz 的目标加速比（L2 名义速率）。L3 本身不直接乘 κ。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="s2-l3-lead">LeadTracker（默认）</h3>
+        <p>
+          G2 关节伺服对位置指令近似一阶滞后，实测参考→实测时滞约 56–66&nbsp;ms。
+          Lead 不求解优化，只在参考上加一截限幅超前，让关节更早往目标走：
+        </p>
+        <div class="eq">
+          \[
+          \ell = \mathrm{clip}\big(g\,(r_{+1}+\tau\,\dot r - r),\ \pm \ell_{\max}\big),\qquad
+          \bar\ell \leftarrow \bar\ell + \alpha(\ell-\bar\ell),\qquad
+          y = r + \bar\ell
+          \]
+        </div>
+        <p>人话：先算「若按 τ 补偿，参考应该超前到哪」→ 乘增益 \(g\) → 限幅成 \(\ell\) → 平滑成 \(\bar\ell\) → 命令 = 参考 + 平滑超前。</p>
+        <p>
+          闭爪时把 \(\ell_{\max}\) 从 0.10 降到 0.05：Seek2 里搬运段超前经常顶满（约 22% 时间被截），持球晃；收紧后截断归零。
+          跟踪后再按 GDK 软限位截断位置，超出量记 <code>sat_excess_rad</code>。
+        </p>
+
+        <h3 id="s2-l3-mpc">Acados MPC（实验，不是默认）</h3>
+        <div class="callout">
+          <strong>一句话。</strong>
+          Lead 是开环「参考 + 限幅超前」；MPC 从估计的臂状态 \(\hat q\) 出发，在 80&nbsp;ms 短时域里解一个带硬约束的跟踪 QP，输出本拍臂命令 \(y\)。
+          L2 决定「路点何时到」，L3-MPC 决定「这一拍命令往哪拧、拧多狠」。配方 <code>tracker: mpc</code>；失败 / 超时当拍退回 Lead。
+        </div>
+
+        <h4 id="s2-l3-mpc-why">为何还要 MPC</h4>
+        <p>
+          Lead 在 1.0×～1.4× 已经够用，但 \(\kappa\) 升高后超前量容易顶满限幅，对「命令一步跳多大、加速度尖不尖」没有硬盒。
+          MPC 把这些写成约束，并显式用植物模型预测未来几拍的 \(q\)，理论上能压时滞与轮廓误差。
+          M3（κ=1.3 MPC）实测：lag 57→49&nbsp;ms、EE 误差最低，但一次率 88%、周期没有更好 → <strong>不作默认，留作时滞实验轨</strong>。
+          专文：<code>docs/acados-mpc-tracker.html</code>；配方例：<code>h7_k1p4_qp_phase_mpc_ctrl.yaml</code>。
+        </p>
+
+        <h4 id="s2-l3-mpc-plant">植物模型与状态估计</h4>
+        <p>臂 14 维（不含腰 / 夹爪）用离散一阶滞后近似伺服：</p>
+        <div class="eq">
+          \[
+          q^{+}=a\,q+(1-a)\,y,\qquad a=e^{-\Delta t/\tau},\quad \Delta t=10\,\mathrm{ms},\ \tau=57\,\mathrm{ms}
+          \]
+        </div>
+        <p>
+          控制量是位置命令 \(y\)，不是力矩。状态扩成 \(x=[q;\ y^{-};\ y^{--}]\)（\(3\times14\) 维），以便写 \(\Delta y\)、\(\Delta^2 y\) 约束。
+        </p>
+        <p>
+          实测关节有传感延迟，不能直接当 \(q\)。控制环用 <code>LagStateEstimator</code>：从一帧较新的本体观测出发，把此后已下发的命令按同一滞后模型重放，得到「现在」的 \(\hat q\)。
+          MPC 的初值钉死为 \(\hat q\)（盒约束 \(x_0=\hat q\)）。
+        </p>
+
+        <h4 id="s2-l3-mpc-ocp">OCP：决策变量、代价、约束</h4>
+        <table>
+          <thead><tr><th>角色</th><th>符号 / 默认</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td>决策变量</td><td>\(y_k\in\mathbb{R}^{14}\)，\(k=0\ldots N-1\)</td><td>预测窗内每一拍的臂位置命令；只取 \(y_0\) 下发</td></tr>
+            <tr><td>时域</td><td>\(N=8\)，\(\Delta t=10\)&nbsp;ms</td><td>预测 80&nbsp;ms；SQP-RTI + HPIPM，cython 包装</td></tr>
+            <tr><td>参考</td><td>从当前 \(r\) 线性过渡到 \(r_{+1}\)</td><td>窗内跟踪目标；夹爪不进 MPC，透传参考</td></tr>
+            <tr><td>软代价</td><td>NONLINEAR_LS：\(\|q-r\|^2\)（主）+ \(\|\Delta^2 y\|^2\)（\(w_{\mathrm{ddy}}=10\)）</td><td>追参考，顺带抹命令加速度尖；\(w_{\mathrm{cmd}},w_{\Delta y}\) 默认 0</td></tr>
+            <tr><td>位置盒</td><td>\(y\in[q_{\min},q_{\max}]\)</td><td>默认 \(\pm\pi\)；真机可接 GDK 软限位向量</td></tr>
+            <tr><td>硬约束 \(h\)</td><td>超前量 / \(\Delta y\) / \(\Delta^2 y\)</td><td>见下表；求解器当硬盒</td></tr>
+            <tr><td>预算</td><td>\(\le 12\)&nbsp;ms</td><td>超时或 status≠ok → 当拍 Lead</td></tr>
+          </tbody>
+        </table>
+
+        <h4 id="s2-l3-mpc-lead-box">「约束超前量」是什么、解决什么</h4>
+        <p>
+          不是「往前多看几帧」的 lookahead，而是<strong>命令相对当前估计姿态允许偏多远</strong>：
+        </p>
+        <div class="eq">
+          \[
+          |y - \hat q| \le \tau\cdot v_{\max}
+          \]
+        </div>
+        <p>
+          一阶滞后下植物速度 \(\dot q \approx (y-q)/\tau\)，所以上式等价于
+          \( |\dot q| \le v_{\max} \)：用「命令相对状态的超前量」把<strong>关节速度盒</strong>写成对 \(y\) 的线性约束。
+          Lead 里同类东西是软的 \(\ell_{\max}\) 限幅；这里是 OCP 硬约束，和 \(\Delta y\)、\(\Delta^2 y\) 一起进 \(h\)：
+        </p>
+        <table>
+          <thead><tr><th>约束</th><th>形式</th><th>默认</th><th>解决的问题</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>超前量（速率盒）</td>
+              <td>\(|y-\hat q|\le \tau\,v_{\max}\)</td>
+              <td>\(v_{\max}=50\)&nbsp;rad/s → \(\tau v_{\max}\approx 2.85\)&nbsp;rad，<strong>几乎不起作用</strong></td>
+              <td>防止命令甩得太开、隐含关节超速</td>
+            </tr>
+            <tr>
+              <td>命令步长 \(\Delta y\)</td>
+              <td>\(|y-y^{-}|\le \Delta y_{\max}\)</td>
+              <td>0.05&nbsp;rad / 10&nbsp;ms（≈5&nbsp;rad/s 命令变化率）</td>
+              <td>相邻控制拍命令别跳；成功解后代码里再裁一道同上限</td>
+            </tr>
+            <tr>
+              <td>命令加速度 \(\Delta^2 y\)</td>
+              <td>\(|y-2y^{-}+y^{--}|\le \Delta^2 y_{\max}\)</td>
+              <td>硬盒 0.5&nbsp;rad；软代价 \(w_{\mathrm{ddy}}=10\)</td>
+              <td>抹尖、减抖</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 id="s2-l3-mpc-vmax">关节限速是在这里吗？</h4>
+        <p><strong>形式上在，实际上默认没接真限速。</strong>对照全栈：</p>
+        <table>
+          <thead><tr><th>层</th><th>有没有速度盒</th><th>现状</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>L2 TimeAxisQP</td>
+              <td>代码支持 \(s_i|\Delta p_{i,j}|\le v_{\max,j}\)</td>
+              <td>真机 CLI <strong>未传</strong> <code>v_max_rad_s</code>；加速主要靠 κ / 接触窗</td>
+            </tr>
+            <tr>
+              <td>L3 MPC「超前量」</td>
+              <td>\(|y-\hat q|\le\tau v_{\max}\)</td>
+              <td>默认 \(v_{\max}=50\)，远宽于 URDF（~3&nbsp;rad/s），等于关掉</td>
+            </tr>
+            <tr>
+              <td>L3 后 / 下发前</td>
+              <td>GDK <strong>位置</strong>软限位截断</td>
+              <td>只截位置，不截速度；超速靠伺服自己吃</td>
+            </tr>
+            <tr>
+              <td>离线度量</td>
+              <td>URDF \(v_{\lim}\) 利用率 p50/p95</td>
+              <td>只报告，不反馈进控制器</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          所以日报里搬运 \(u_{95}&gt;100\%\)，和「MPC / QP 都没把 URDF \(v_{\lim}\) 接成硬盒」是一致的。
+          若要在 MPC 里真正限速，应把 <code>v_max_rad_s</code> 改成 URDF 逐关节限速（并可能收紧 \(\Delta y_{\max}\)），再 A/B 一次率与体感。
+        </p>
+
+        <h4 id="s2-l3-mpc-tick">MPC 每拍流程</h4>
+        <ol>
+          <li>读臂实测 → <code>LagStateEstimator.push_observation</code> → <code>estimate</code> 得 \(\hat q\)。</li>
+          <li>组参考轨迹（开关 <code>inference.mpc_preview</code>）：
+            <code>linear</code>（默认）窗内从当前臂参考线性插到前瞻 1 模型帧；
+            <code>plan</code> 用 <code>PlanBuffer.reference_horizon(N+1, 10ms)</code> 取 \(r(t+k\cdot 10\,\mathrm{ms})\)，第 N 行作终端参考。</li>
+          <li>SQP-RTI 解 OCP；墙钟 &gt;12&nbsp;ms 或失败 → Lead，<code>fallback_count++</code>。</li>
+          <li>成功则取 \(u_0\)，相对上一拍再夹 \(\Delta y\le 0.05\)，再夹位置盒；写回 21 维命令的臂段，夹爪仍用参考。</li>
+          <li><code>push_command</code> 把本拍命令喂回估计器，供下拍重放。</li>
+        </ol>
+
+        <h4 id="s2-l3-mpc-jerky">参考又抖又急时，MPC 能做什么？规划与控制怎么分工</h4>
+        <div class="callout">
+          <strong>短答：</strong>MPC 只能拿「跟踪精度」换「平滑」——它会把命令抹平，于是相对参考的误差变大。
+          业界一般不靠控制器去救坏参考，而是<strong>分层</strong>：规划保证参考光滑、可执行；控制只负责跟踪与抗扰。
+          真正的规划-控制联合优化，主要用在「时间怎么走」这一维。
+        </div>
+
+        <p><strong>① 本仓 MPC 遇到抖动参考时会怎样</strong>（对照 <code>arm_mpc_acados.py</code> / <code>acados_mpc.py</code>）</p>
+        <ul class="compact">
+          <li><strong>代价</strong>：跟踪项 \(w_{\text{track}}\|\hat q-r\|^2\) 和命令二阶差分 \(w_{\Delta^2 y}\|\Delta^2 y\|^2\)，默认都是 10；\(w_{\Delta y}\)、\(w_{\text{cmd}}\)、\(w_{yx}\) 默认 0。</li>
+          <li><strong>约束</strong>：\(|y-\hat q|\le\tau v_{\max}\)、\(|\Delta y|\le\Delta y_{\max}\)、\(|\Delta^2 y|\le\Delta^2 y_{\max}\)；但默认 <code>v_max=50</code>、<code>dy_max=ddy_max=100</code>，基本等于没开。</li>
+          <li><strong>时域</strong>：N=8 拍（80&nbsp;ms）；默认（<code>mpc_preview: linear</code>）时域内参考是当前 \(r\) 到前瞻 \(r_{+1}\) 的<strong>线性插值</strong>，不是 PlanBuffer 里的真实未来参考；<code>plan</code> 开关已实现，见下文 ④-3。</li>
+        </ul>
+        <p>所以参考抖时，MPC 实际上是一个<strong>带滞后的平滑滤波器</strong>：</p>
+        <ul class="compact">
+          <li><strong>抑制方式</strong>：\(w_{\Delta^2 y}\) 调大 → 命令更平滑，但相对参考误差更大、相位更滞后；调小 → 几乎照单全收。它分不清哪部分是策略真想要的急动作，哪部分是噪声。</li>
+          <li><strong>误差会不会变大</strong>：相对参考会变大。但若那段抖动本是噪声，相对「真实意图」的误差反而变小。所以「参考跟得多准」只有在参考本身干净时才是好指标。</li>
+          <li><strong>预览很弱</strong>：时域内只是线性插值，MPC 看不到 80&nbsp;ms 内真实的急转弯，只能事后滞后地追，做不到提前减速 / 提前转向。这是本仓当前的实际短板。</li>
+        </ul>
+
+        <p><strong>② 业界主流：分层解耦</strong></p>
+        <table>
+          <thead><tr><th>层</th><th>负责什么</th><th>典型做法</th></tr></thead>
+          <tbody>
+            <tr><td>规划 / 参考生成</td><td>光滑；速度、加速度、jerk 上可执行</td><td>样条、TOPP-RA / Ruckig 时间最优参数化、低通、ACT 时间集成、RTC 块间补全</td></tr>
+            <tr><td>跟踪控制</td><td>模型误差、滞后、扰动；约束只做安全兜底</td><td>PD + 前馈、阻抗控制、跟踪型 MPC</td></tr>
+            <tr><td>安全层</td><td>硬限位</td><td>关节限位、限速、力矩限制</td></tr>
+          </tbody>
+        </table>
+        <p>
+          核心原则：<strong>控制器拿到的参考必须可执行</strong>。光滑性和可执行性归规划层；控制层约束一旦经常被触发，说明上游参考有问题。
+        </p>
+
+        <p><strong>③ 联合优化用在哪</strong></p>
+        <ul class="compact">
+          <li><strong>轮廓控制 MPC（MPCC）</strong>：把路径参数 \(s\) 当决策变量放进 MPC；跟不上时允许沿路径放慢，只罚垂直于路径的偏差、不罚沿路径的落后。即「时间重规划 + 跟踪」在一个优化里同时解。常见于赛车、无人机、CNC。</li>
+          <li><strong>路径速度反馈 / 在线时间缩放</strong>：跟踪误差变大时自动放慢参考推进。轻量联合，工业臂、CNC 进给倍率自适应属于这类。</li>
+          <li><strong>全身 MPC（腿足）</strong>：上层给接触时序，MPC 同时优化轨迹与力。</li>
+        </ul>
+        <p>学习策略部署里，主流仍是「策略 + 后处理负责光滑，底层只管跟踪」，联合优化用得不多。</p>
+
+        <p><strong>④ 映射到本仓与改进方向</strong></p>
+        <table>
+          <thead><tr><th>层</th><th>该负责</th><th>现状 / 缺口</th></tr></thead>
+          <tbody>
+            <tr><td>L1 策略 + RTC</td><td>新旧块内容连续</td><td>已有 inpaint + 前缀锁</td></tr>
+            <tr><td>L2 ZP + TimeAxisQP</td><td>光滑 + 时间可行</td><td>只有 dt 上下界和速率平滑项；未把 URDF 加速度 / jerk 显式写进 QP</td></tr>
+            <tr><td>L3 MPC / Lead</td><td>滞后补偿 + 少量平滑兜底</td><td>时域参考是线性插值，预览弱</td></tr>
+          </tbody>
+        </table>
+        <p>参考太急时，按「先上游后下游」排查：</p>
+        <ol>
+          <li><strong>先量化</strong>：trace 里同时比参考 jerk、命令 jerk、实测 jerk，定位抖动来自哪一层。</li>
+          <li><strong>加强 L2</strong>：把关节加速度 / jerk 限制写进 TimeAxisQP，参考太急时 QP 自动拉长 \(\mathrm{d}t_i\)（轻量版 TOPP）。</li>
+          <li><strong>改 MPC 预览</strong>（<strong>已实现，开关</strong> <code>inference.mpc_preview: plan</code> / CLI <code>--mpc-preview plan</code>）：
+            时域参考改为 <code>PlanBuffer.reference_horizon(N+1, 10ms)</code>——与 <code>advance</code> 同一把模型步尺、同一种插值（pchip / linear），在 \(t+k\cdot 10\,\mathrm{ms}\) 取真实参考，第 N 行作终端；不改 progress，越过计划末尾保持最后一帧。
+            pchip 斜率按计划缓存（load / merge 时失效），每拍取 9 点约 0.1&nbsp;ms（x86），不计入 MPC 求解预算。
+            A/B：<code>h7_k1p4_qp_phase_mpc_ctrl.yaml</code>（linear）vs <code>h7_k1p4_qp_phase_mpc_ctrl_preview.yaml</code>（plan），看拐弯 / 接触前的 lag、命令 jerk、<code>fallback_count</code>、<code>tracker_solve_ms</code>。</li>
+          <li><strong>可选：路径速度反馈</strong>：<code>advance(dt, alpha)</code> 已有 <code>alpha</code> 参数，但 <code>inference_loop.py</code> 固定传 <code>alpha=1.0</code>。可按跟踪误差把 <code>alpha</code> 降到 1 以下，跟不上就放慢推进——MPCC 思路最便宜的近似。</li>
+        </ol>
+
+        <h3 id="s2-l3-tick">控制环每拍过程（10 ms）</h3>
+        <ol>
+          <li>
+            <code>advance(10 ms)</code>：按当前段 \(\mathrm{d}t_i\) 把 10&nbsp;ms 换成 \(\Delta\mathrm{progress}\)
+            （见 <a href="#s2-l3-align">对齐</a>）→
+            <code>reference()</code> 在小数 progress 上插值得 24 维 \(r\) → 映射 21 维（腰锁定）。
+          </li>
+          <li>读实测状态。</li>
+          <li>
+            <strong>L3 跟踪（配方二选一）：</strong>
+            <ul class="compact">
+              <li><code>tracker: lead</code>（默认）→ <code>LeadTracker.step</code>；</li>
+              <li><code>tracker: mpc</code> → <code>LagStateEstimator</code> 估 \(\hat q\) → <code>AcadosMpcTracker.step</code>（SQP-RTI，\(N=8\)）；超时/失败当拍回退 Lead。</li>
+            </ul>
+            可选锁夹爪（A/B）。
+          </li>
+          <li>按 GDK 软限位截断 → <code>joint_servo_control</code>（超时 50&nbsp;ms 报错）。</li>
+          <li>记录实测 / 参考 / 指令、速度与力矩、各段耗时；跟踪误差超 0.10&nbsp;rad 告警。</li>
+        </ol>
+
+        <h2 id="s2c">2.4 L4 接触护栏：用夹爪命令预知接触</h2>
+        <p>
+          方案文里的 L4 是「检测到接触再降速」。fasterVLA 现在没有在线接触检测（<code>ContactMonitor</code> 属 F5，未做），而是利用一个事实：
+          <strong>夹爪开合就写在 chunk 里</strong>，接触时刻在执行前就已知。三处护栏都挂在这个信号上：
+        </p>
+        <table>
+          <thead><tr><th>位置</th><th>做什么</th><th>解决的问题</th></tr></thead>
+          <tbody>
+            <tr><td>L2 接触窗</td><td>夹爪事件 ±17 帧限 1.0×</td><td>夹取 / 放球时刻不提速，保一次率</td></tr>
+            <tr><td>L2 搬运上限</td><td>\(\kappa_{\mathrm{tr}}=\kappa\)</td><td>接触段省的时间不倒灌进搬运/放球峰值</td></tr>
+            <tr><td>L3 闭爪 lead</td><td>闭合时 \(\ell_{\max}\) 0.10→0.05</td><td>持球搬运不晃</td></tr>
+          </tbody>
+        </table>
+        <p>
+          局限：护栏管不了「逼近时没对准就闭爪」造成的空夹。数据里这类失败是闭爪前臂速仍高、夹爪半开半闭抖动，属于策略本身，归训练侧处理。
+        </p>
+
+        <h2 id="s3">3 训练侧</h2>
+        <ul class="compact">
+          <li><strong>已实现：</strong><code>VelocitySkipActions</code>——在比 \(H\) 更长的窗口里，按逐关节 \(v_{\max}\) 选每一步「最远的合法跳」，让模型直接学到更快的节拍；夹爪事件前后的帧不允许跳过（与部署侧接触窗同一思路）。配方经 <code>dataset_plan</code> 生成 <code>delta_timestamps</code>，接 openpi JAX 训练。</li>
+          <li><strong>与执行栈的关系：</strong>执行栈的提速不依赖它；两者叠加时，部署侧 \(\kappa\) 要相应降低。</li>
+        </ul>
+        <div class="review">
+          <strong>Review 待确认：</strong>h7 默认模型 <code>fast60_nvfp4_ep0</code> 的训练数据 <code>30hz_full_fast60</code> 是按片段筛选的子集；它是否经过 VelocitySkip 训练，需要你确认后再写死。
+        </div>
+
+        <h2 id="s4">4 Trace 与度量</h2>
+        <p>
+          每次 <code>run</code> 落一个结果目录：<code>control_trace.npz</code>（每拍）、<code>prediction_trace.npz</code>（每个 chunk）、<code>run.log</code>。
+          <code>fastervla-deploy report --run &lt;dir&gt; --urdf &lt;model.urdf&gt;</code> 输出一行摘要，日报表格都从这里来。
+        </p>
+        <table>
+          <thead><tr><th>类别</th><th>指标</th><th>定义</th></tr></thead>
+          <tbody>
+            <tr><td>吞吐</td><td>bpm、找球 / 搬运 / 单球周期</td><td>右夹爪命令切段：松→夹（找球）、夹→放（搬运）、松→松（周期）；松→松 &lt;3&nbsp;s 视为重夹，并入同一球</td></tr>
+            <tr><td>可靠性</td><td>first_try</td><td>一次夹起的球占比</td></tr>
+            <tr><td>跟踪</td><td>lag_ref、轮廓误差</td><td>路径匹配时滞（实测落后参考多少）、到参考路径的距离；按任务阶段与速度档分桶</td></tr>
+            <tr><td>夹取</td><td>grip_close_ee</td><td>闭爪瞬间 URDF FK 下指令与实测末端的距离（跟踪误差，不是到球的距离）</td></tr>
+            <tr><td>平顺</td><td>merge 跳变、SPARC、jerk</td><td>换段跳变 / 速度曲线平滑度</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="s4-util">URDF 限速利用率：加速还剩多少空间</h3>
+        <p>每拍取右臂 7 关节中最吃紧的那一个，相对 URDF 限速 \(v_{\lim}=(3.05,3.05,3.76,3.76,3.35,3.35,3.35)\)&nbsp;rad/s：</p>
+        <div class="eq">
+          \[
+          u(t)=\max_j \frac{|\dot q^{\mathrm{cmd}}_j(t)|}{v_{\lim,j}}
+          \]
+        </div>
+        <p>
+          再在每个阶段内取 p50 与 p95。p95 看尖峰是否摸到硬件天花板，p50 看整体占用。目标：找球 / 搬运 \(u_{95}\ge 80\%\)。
+        </p>
+        <table>
+          <thead><tr><th>run</th><th>找球 \(u_{50}\)</th><th>找球 \(u_{95}\)</th><th>搬运 \(u_{50}\)</th><th>搬运 \(u_{95}\)</th></tr></thead>
+          <tbody>
+            <tr><td>R0 · 1.0×</td><td>17%</td><td>63%</td><td>25%</td><td>94%</td></tr>
+            <tr><td>M4b · 默认</td><td>20%</td><td>91%</td><td>48%</td><td>109%</td></tr>
+          </tbody>
+        </table>
+        <p>
+          读法：尖峰已经到顶，搬运甚至超过 URDF 限速（因为 QP 里没接逐关节 v_max，超出部分靠伺服饱和吃掉）；但中位数还很低。
+          再抬 \(\kappa\) 只会继续抬尖峰，剩余空间在于让更多时间处于高速，以及提高一次率。
+        </p>
+
+        <h2 id="s5">5 当前工作点与实测</h2>
+        <p>默认配方 <code>configs/deploy/h7_k1p4_qp_phase_lead2_ctrl.yaml</code>（2026-11-25 夜场 M4b_ctrl，10 球）：</p>
+        <table>
+          <thead><tr><th>指标</th><th>R0 · 1.0× 基线</th><th>M4b · 默认</th><th>变化</th></tr></thead>
+          <tbody>
+            <tr><td>找球 松→夹 p50</td><td>4.35&nbsp;s</td><td>2.85&nbsp;s</td><td>1.53×</td></tr>
+            <tr><td>搬运 夹→放 p50</td><td>2.78&nbsp;s</td><td>1.73&nbsp;s</td><td>1.61×</td></tr>
+            <tr><td>单球周期 松→松 p50</td><td>7.92&nbsp;s</td><td>4.57&nbsp;s</td><td>1.73×（−42%）</td></tr>
+            <tr><td>一次夹取率</td><td>100%（5 球）</td><td>100%（10 球）</td><td>—</td></tr>
+            <tr><td>lag_ref p50</td><td>66&nbsp;ms</td><td>59&nbsp;ms</td><td>−7&nbsp;ms</td></tr>
+            <tr><td>grip_close_ee p50</td><td>5.4&nbsp;mm</td><td>3.7&nbsp;mm</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <p>
+          bpm 8.07 低于周期推算值，是因为短场摊上了开场拿桶的约 9&nbsp;s；全日各 run 找球仍占周期约 55–63%。
+        </p>
+        <p>演进路径（同一模型）：</p>
+        <ol>
+          <li>R0 1.0× soft → R1 QP 1.3× 分相：周期 −25%。</li>
+          <li>Lead2（更强 lead）@1.3：搬运明显变快；Seek2 复测暴露持球晃 + 重夹（一次率 85%）。</li>
+          <li>Lead2_stable：闭爪降 lead + 接触窗加严 → 一次率 92%。</li>
+          <li>盲目 κ=1.4（M4）否决 → 护栏版 M4b（\(\kappa_{\mathrm{tr}}=\kappa\)、接触窗 ×κ、grip_delta 0.08）→ 10/10 一次，定为默认。</li>
+        </ol>
+
+        <h2 id="s6">6 已知局限 / 待讨论</h2>
+        <ul class="compact">
+          <li><strong>逐关节 v_max 未接入真机 QP：</strong>代码有 <code>v_max_rad_s</code>，CLI/配方没传。接上 URDF 限速后搬运 \(u_{95}\) 会被压到 ≤100%，但这一段可能变慢，需要 A/B。</li>
+          <li><strong>QP 是分段帽，不是全局最优时间：</strong>默认配方下 QP 基本退化成两档速率；要进一步压时间，得引入加速度/jerk 约束或换 TOPP-RA 类方法。</li>
+          <li><strong>没有在线接触检测：</strong>护栏依赖夹爪命令准确；策略空夹、半闭抖动时护栏不起作用（F5 <code>ContactMonitor</code> 未做）。</li>
+          <li><strong>MPC 没有转成吞吐：</strong>时滞更低但一次率下降，原因未定位；且默认 <code>v_max=50</code>，超前量速率盒实际关掉。</li>
+          <li><strong>找球占周期约 55–63%：</strong>逼近阶段速度中位数低（\(u_{50}\approx 20\%\)），主要受策略节拍与停顿影响，执行栈能做的有限。</li>
+          <li><strong>开场拿桶约 9&nbsp;s：</strong>属于模型开场技能，与 \(\kappa\) 无关。</li>
+        </ul>
+
+        <h2 id="s7">7 代码锚点</h2>
+        <ul class="compact">
+          <li>仓库：<code>happyAnger66-an/fasterVLA</code>，提交 <code>8b25673</code>。</li>
+          <li>默认配方（4+4）：<code>configs/deploy/h7_k1p4_qp_phase_lead2_ctrl.yaml</code>；RTC 稳态（prefix=0）：<code>h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml</code>；1.3× 对照：<code>h7_k1p3_qp_phase_lead2_stable.yaml</code>。</li>
+          <li>配方字段说明：<code>docs/deploy-config.md</code>；TimeAxisQP 推导：<code>docs/retime-qp-flow.html</code>；PlanBuffer：<code>docs/plan-buffer.html</code>；MPC：<code>docs/acados-mpc-tracker.html</code>。</li>
+          <li>方案文：<a href="/topics/robot/deploy/execution/openpi-exec-plan/">真机部署加速方案</a>；日报：<a href="/topics/robot/deploy/execution/daily/2026-11-25/">2026-11-25 h7</a>。</li>
+        </ul>
+
+        </div>
+        </div>
+      </main>
+    </div>
+    <script>
+      (function () {
+        if (/xiaoanger\.com$/.test(location.hostname)) return;
+        var s = document.createElement("script");
+        s.src = "http://www.xiaoanger.com/assets/portal.js";
+        document.body.appendChild(s);
+      })();
+    </script>
+    <script src="/assets/portal.js"></script>
+
+<script>
+(function () {
+  var root = document.getElementById("pl-anim");
+  if (!root) return;
+
+  var H = 12;
+  var ANCHOR = 3;
+  var DHAT = 4;
+  var EXTRA = 2;
+  var NLOCK = DHAT + EXTRA; // 6
+  var oldDt = [];
+  for (var i = 0; i < H; i++) oldDt.push(i < 3 ? 33 : 24);
+  var lockedNew = [];
+  for (var j = 0; j < H; j++) {
+    if (j < NLOCK) lockedNew.push(oldDt[ANCHOR + j] || 24);
+    else lockedNew.push(24);
+  }
+  var badNew = [];
+  for (var k = 0; k < H; k++) badNew.push(24);
+
+  var oldCellsEl = root.querySelector("[data-pl=old-cells]");
+  var newCellsEl = root.querySelector("[data-pl=new-cells]");
+  var linksEl = root.querySelector("[data-pl=links]");
+  var head = root.querySelector("[data-pl=head]");
+  var noteEl = root.querySelector("[data-pl=note]");
+  var btn = root.querySelector("[data-pl=toggle]");
+  var btnPrev = root.querySelector("[data-pl=prev]");
+  var btnNext = root.querySelector("[data-pl=next]");
+  var stageEls = root.querySelectorAll(".pl-stage");
+  var brOldRtc = root.querySelector("[data-pl=old-rtc]");
+  var brOldLock = root.querySelector("[data-pl=old-lock]");
+  var brNewRtc = root.querySelector("[data-pl=new-rtc]");
+  var brNewLock = root.querySelector("[data-pl=new-lock]");
+  var brNewBad = root.querySelector("[data-pl=new-bad]");
+
+  var oldNodes = [];
+  var newNodes = [];
+  var linkNodes = [];
+
+  function mkCell(parent, arr) {
+    var el = document.createElement("div");
+    el.className = "pl-cell";
+    el.innerHTML = '<span class="pl-idx"></span><span class="pl-dt"></span><span class="pl-tag"></span>';
+    parent.appendChild(el);
+    arr.push(el);
+    return el;
+  }
+
+  for (var a = 0; a < H; a++) mkCell(oldCellsEl, oldNodes);
+  for (var p = 0; p < ANCHOR; p++) {
+    var pad = document.createElement("div");
+    pad.className = "pl-cell empty";
+    newCellsEl.appendChild(pad);
+  }
+  for (var b = 0; b < H - ANCHOR; b++) mkCell(newCellsEl, newNodes);
+  for (var c = 0; c < H; c++) {
+    var sp = document.createElement("span");
+    sp.textContent = "dt";
+    linksEl.appendChild(sp);
+    linkNodes.push(sp);
+  }
+
+  function setBracket(el, startCol, nCols, on) {
+    if (!el) return;
+    el.classList.toggle("on", !!on);
+    if (!on) return;
+    var pct = 100 / H;
+    el.style.left = startCol * pct + "%";
+    el.style.width = nCols * pct + "%";
+  }
+
+  function paintOld(progress, opts) {
+    opts = opts || {};
+    for (var i = 0; i < H; i++) {
+      var el = oldNodes[i];
+      var ms = oldDt[i];
+      el.querySelector(".pl-idx").textContent = "旧" + i;
+      el.querySelector(".pl-dt").textContent = ms + "ms";
+      el.querySelector(".pl-tag").textContent = ms >= 30 ? "慢" : "快";
+      el.className = "pl-cell " + (ms >= 30 ? "slow" : "fast");
+      if (i < progress) el.classList.add("past");
+      if (opts.rtc && i >= ANCHOR && i < ANCHOR + DHAT) el.classList.add("rtc-hit");
+      if (opts.lock && i >= ANCHOR && i < ANCHOR + NLOCK) el.classList.add("dt-same");
+    }
+    head.style.left = ((progress + 0.5) / H) * 100 + "%";
+  }
+
+  function paintNew(dts, opts) {
+    opts = opts || {};
+    var show = opts.show !== false;
+    for (var i = 0; i < newNodes.length; i++) {
+      var el = newNodes[i];
+      if (!show) {
+        el.className = "pl-cell dim";
+        el.querySelector(".pl-idx").textContent = "新" + i;
+        el.querySelector(".pl-dt").textContent = "—";
+        el.querySelector(".pl-tag").textContent = "未到";
+        continue;
+      }
+      var ms = dts[i];
+      el.querySelector(".pl-idx").textContent = "新" + i;
+      el.querySelector(".pl-dt").textContent = ms + "ms";
+      el.className = "pl-cell";
+      var oldMs = oldDt[ANCHOR + i];
+      var same = Math.abs(ms - oldMs) < 0.5;
+      if (opts.mode === "bad" && i < NLOCK && !same) {
+        el.classList.add("dt-bad");
+        el.querySelector(".pl-tag").textContent = "≠旧" + (ANCHOR + i);
+      } else if (opts.mode === "lock" && i < NLOCK) {
+        el.classList.add("dt-same");
+        el.querySelector(".pl-tag").textContent = "=旧" + (ANCHOR + i);
+      } else if (i < DHAT && opts.rtc) {
+        el.classList.add("rtc-hit");
+        el.classList.add(ms >= 30 ? "slow" : "fast");
+        el.querySelector(".pl-tag").textContent = "RTC";
+      } else if (i >= NLOCK) {
+        el.classList.add("free");
+        el.querySelector(".pl-tag").textContent = "可改";
+      } else {
+        el.classList.add(ms >= 30 ? "slow" : "fast");
+        el.querySelector(".pl-tag").textContent = ms >= 30 ? "慢" : "快";
+      }
+    }
+  }
+
+  function paintLinks(mode) {
+    for (var i = 0; i < H; i++) {
+      var sp = linkNodes[i];
+      sp.className = "";
+      sp.style.color = "";
+      var j = i - ANCHOR;
+      if (j < 0 || j >= H - ANCHOR) {
+        sp.textContent = "";
+        continue;
+      }
+      if (mode === "lock" && j < NLOCK) {
+        sp.textContent = "dt✓";
+        sp.className = "on";
+      } else if (mode === "bad" && j < NLOCK) {
+        var same = Math.abs(badNew[j] - oldDt[i]) < 0.5;
+        sp.textContent = same ? "dt✓" : "dt✗";
+        sp.className = same ? "on" : "on bad";
+      } else if (mode === "rtc" && j < DHAT) {
+        sp.textContent = "路点";
+        sp.className = "on";
+        sp.style.color = "#5b9fd4";
+      } else {
+        sp.textContent = "";
+      }
+    }
+  }
+
+  var notes = [
+    "只有旧 chunk。三角=执行点（即将作为 anchor=旧3）。此时还没有新 chunk。",
+    "开推：从旧3起截 leftover 送 RTC；估 d̂=4（推理期还会走旧3..6）。锁区预备旧3..8（d̂+2=6）。",
+    "新 chunk 左对齐到旧3。蓝框=RTC：新0..3 路点贴旧3..6。中间「路点」表示姿势对齐（还不是 dt）。",
+    "错误示范：重叠区 dt 被改掉。旧3=33 但新0=24 → dt✗。RTC 只管路点，不管快慢，换段会顿。",
+    "前缀锁：新0..5 的 dt 强制 = 旧3..8（全绿 dt✓）。新0..3 同时是 RTC 区；新4..5 是 +2 余量；新6 起 QP 可改。"
+  ];
+
+  var cur = 0;
+  var playing = true;
+  var raf = 0;
+  var t0 = null;
+  var CYCLE = 12000;
+
+  function paint(stage) {
+    cur = stage;
+    stageEls.forEach(function (el) {
+      el.classList.toggle("on", String(stage) === el.getAttribute("data-stage"));
+    });
+    if (noteEl) noteEl.textContent = notes[stage] || "";
+    setBracket(brOldRtc, 0, 0, false);
+    setBracket(brOldLock, 0, 0, false);
+    setBracket(brNewRtc, 0, 0, false);
+    setBracket(brNewLock, 0, 0, false);
+    setBracket(brNewBad, 0, 0, false);
+
+    if (stage === 0) {
+      paintOld(ANCHOR, {});
+      paintNew(lockedNew, { show: false });
+      paintLinks("none");
+    } else if (stage === 1) {
+      paintOld(ANCHOR, { rtc: true, lock: true });
+      paintNew(lockedNew, { show: false });
+      setBracket(brOldRtc, ANCHOR, DHAT, true);
+      setBracket(brOldLock, ANCHOR, NLOCK, true);
+      paintLinks("none");
+    } else if (stage === 2) {
+      paintOld(ANCHOR, { rtc: true });
+      // 只强调 RTC 路点对齐；dt 锁留到第 5 步再标绿
+      paintNew(lockedNew, { show: true, rtc: true, mode: "preview" });
+      setBracket(brOldRtc, ANCHOR, DHAT, true);
+      setBracket(brNewRtc, ANCHOR, DHAT, true);
+      paintLinks("rtc");
+    } else if (stage === 3) {
+      paintOld(ANCHOR, { lock: true });
+      paintNew(badNew, { show: true, mode: "bad" });
+      setBracket(brOldLock, ANCHOR, NLOCK, true);
+      setBracket(brNewBad, ANCHOR, NLOCK, true);
+      paintLinks("bad");
+    } else {
+      paintOld(ANCHOR, { rtc: true, lock: true });
+      paintNew(lockedNew, { show: true, rtc: true, mode: "lock" });
+      setBracket(brOldRtc, ANCHOR, DHAT, true);
+      setBracket(brOldLock, ANCHOR, NLOCK, true);
+      setBracket(brNewRtc, ANCHOR, DHAT, true);
+      setBracket(brNewLock, ANCHOR, NLOCK, true);
+      paintLinks("lock");
+    }
+  }
+
+  function stepNext() { cur = (cur + 1) % notes.length; paint(cur); }
+  function stepPrev() { cur = (cur - 1 + notes.length) % notes.length; paint(cur); }
+  function frame(now) {
+    if (!playing) return;
+    if (t0 == null) t0 = now;
+    var u = ((now - t0) % CYCLE) / CYCLE;
+    cur = Math.min(notes.length - 1, Math.floor(u * notes.length));
+    paint(cur);
+    raf = requestAnimationFrame(frame);
+  }
+  function play() {
+    playing = true;
+    root.classList.add("playing");
+    if (btn) btn.textContent = "暂停";
+    t0 = performance.now() - ((cur + 0.5) / notes.length) * CYCLE;
+    raf = requestAnimationFrame(frame);
+  }
+  function pause() {
+    playing = false;
+    root.classList.remove("playing");
+    if (btn) btn.textContent = "播放";
+    if (raf) cancelAnimationFrame(raf);
+    paint(cur);
+  }
+  if (btn) btn.addEventListener("click", function () { playing ? pause() : play(); });
+  if (btnNext) btnNext.addEventListener("click", function () { pause(); stepNext(); });
+  if (btnPrev) btnPrev.addEventListener("click", function () { pause(); stepPrev(); });
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    cur = 4; paint(cur); if (btn) btn.textContent = "播放";
+  } else play();
+})();
+</script>
+
+<script>
+(function () {
+  var root = document.getElementById("adv-anim");
+  if (!root) return;
+
+  var NS = "http://www.w3.org/2000/svg";
+  var CTRL_MS = 10;
+  var N_KNOTS = 6;
+  // Synthetic 1D joint path (geometry fixed; only dt changes).
+  var joints = [0.15, 0.55, 0.95, 0.70, 0.35, 0.80];
+  // Segment durations p_i → p_{i+1} (ms). QP: contact slow, then transport faster.
+  var DT_QP = [33.3, 33.3, 23.8, 18.0, 15.0];
+  var DT_UNIFORM = [33.3, 33.3, 33.3, 33.3, 33.3];
+  var W = 720, H = 228;
+  var PAD_L = 48, PAD_R = 24, PAD_T = 28, PAD_B = 52;
+  var plotW = W - PAD_L - PAD_R;
+  var plotH = H - PAD_T - PAD_B;
+
+  var svg = root.querySelector("[data-adv=svg]");
+  var noteEl = root.querySelector("[data-adv=note]");
+  var elT = root.querySelector("[data-adv=t]");
+  var elP = root.querySelector("[data-adv=p]");
+  var elDp = root.querySelector("[data-adv=dp]");
+  var elDti = root.querySelector("[data-adv=dti]");
+  var elN = root.querySelector("[data-adv=n]");
+  var btnToggle = root.querySelector("[data-adv=toggle]");
+  var btnStep = root.querySelector("[data-adv=step]");
+  var btnReset = root.querySelector("[data-adv=reset]");
+  var radios = root.querySelectorAll('input[name="adv-dt"]');
+
+  function modeKey() {
+    for (var i = 0; i < radios.length; i++) {
+      if (radios[i].checked) return radios[i].value;
+    }
+    return "qp";
+  }
+  function currentDts() {
+    return modeKey() === "uniform" ? DT_UNIFORM.slice() : DT_QP.slice();
+  }
+
+  function el(name, attrs) {
+    var n = document.createElementNS(NS, name);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        n.setAttribute(k, attrs[k]);
+      });
+    }
+    return n;
+  }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function yOfJoint(j) { return PAD_T + (1 - j) * plotH; }
+
+  var gBands = el("g");
+  var gPath = el("g");
+  var gChords = el("g");
+  var gSamples = el("g");
+  var gKnots = el("g");
+  var gCursor = el("g");
+  var knotCircles = [];
+  var pathEl = el("path", {
+    d: "", fill: "none", stroke: "#c4a574", "stroke-width": "2", "stroke-opacity": "0.9"
+  });
+  gPath.appendChild(pathEl);
+
+  var axisY = el("line", {
+    x1: PAD_L, y1: PAD_T, x2: PAD_L, y2: PAD_T + plotH,
+    stroke: "currentColor", "stroke-opacity": "0.25", "stroke-width": "1"
+  });
+  var axisX = el("line", {
+    x1: PAD_L, y1: PAD_T + plotH, x2: PAD_L + plotW, y2: PAD_T + plotH,
+    stroke: "currentColor", "stroke-opacity": "0.25", "stroke-width": "1"
+  });
+  var labY = el("text", {
+    x: 10, y: PAD_T + plotH / 2, fill: "currentColor", "fill-opacity": "0.45",
+    "font-size": "11", "font-family": "ui-monospace,monospace",
+    transform: "rotate(-90 10 " + (PAD_T + plotH / 2) + ")"
+  });
+  labY.textContent = "joint (示意)";
+  var labX = el("text", {
+    x: PAD_L + plotW / 2, y: H - 6, fill: "currentColor", "fill-opacity": "0.45",
+    "font-size": "11", "font-family": "ui-monospace,monospace", "text-anchor": "middle"
+  });
+  labX.textContent = "墙钟 t（ms）· 棕点间距 = dt_i";
+
+  svg.appendChild(axisY);
+  svg.appendChild(axisX);
+  svg.appendChild(labY);
+  svg.appendChild(labX);
+  svg.appendChild(gBands);
+  svg.appendChild(gPath);
+  svg.appendChild(gChords);
+  svg.appendChild(gSamples);
+  svg.appendChild(gKnots);
+  svg.appendChild(gCursor);
+
+  var cursorLine = el("line", {
+    x1: PAD_L, y1: PAD_T, x2: PAD_L, y2: PAD_T + plotH,
+    stroke: "#d4a05b", "stroke-width": "1.5", "stroke-dasharray": "4 3"
+  });
+  var cursorDot = el("circle", {
+    cx: PAD_L, cy: yOfJoint(joints[0]), r: 5,
+    fill: "#3d9b6e", stroke: "#1f6b45", "stroke-width": "1.5"
+  });
+  gCursor.appendChild(cursorLine);
+  gCursor.appendChild(cursorDot);
+
+  var dts = currentDts();
+  var cumT = []; // knot wall times, length N_KNOTS
+  var totalT = 0;
+  var progress = 0;
+  var wallMs = 0;
+  var beats = 0;
+  var lastDp = null;
+  var samples = [];
+  var playing = false;
+  var timer = 0;
+
+  function rebuildCum() {
+    dts = currentDts();
+    cumT = [0];
+    for (var i = 0; i < dts.length; i++) cumT.push(cumT[i] + dts[i]);
+    totalT = cumT[cumT.length - 1] || 1;
+  }
+
+  function dtAtProgress(p) {
+    var idx = Math.min(Math.max(0, Math.floor(p)), dts.length - 1);
+    return dts[idx];
+  }
+
+  function wallOfProgress(p) {
+    if (p <= 0) return 0;
+    if (p >= N_KNOTS - 1) return totalT;
+    var i0 = Math.floor(p);
+    var frac = p - i0;
+    return cumT[i0] + frac * dts[i0];
+  }
+
+  function xOfWall(t) {
+    return PAD_L + (t / totalT) * plotW;
+  }
+  function xOfProgress(p) {
+    return xOfWall(wallOfProgress(p));
+  }
+
+  function jointAt(p) {
+    if (p <= 0) return joints[0];
+    if (p >= N_KNOTS - 1) return joints[N_KNOTS - 1];
+    var i0 = Math.floor(p);
+    return lerp(joints[i0], joints[i0 + 1], p - i0);
+  }
+
+  // Same walking rule as PlanBuffer.advance(dt_real).
+  function advanceProgress(p, dtReal) {
+    var remaining = dtReal;
+    var h = N_KNOTS;
+    while (remaining > 1e-12 && p < h - 1e-12) {
+      var idx = Math.floor(p);
+      if (idx >= h - 1) { p = h - 1; break; }
+      var seg = dts[idx];
+      if (seg <= 0) { p = idx + 1; continue; }
+      var frac = p - idx;
+      var remInSeg = seg * (1 - frac);
+      if (remaining < remInSeg - 1e-12) {
+        p = p + remaining / seg;
+        remaining = 0;
+      } else {
+        remaining -= remInSeg;
+        p = idx + 1;
+      }
+    }
+    return Math.min(p, h - 1);
+  }
+
+  function paintRuler() {
+    while (gBands.firstChild) gBands.removeChild(gBands.firstChild);
+    while (gKnots.firstChild) gKnots.removeChild(gKnots.firstChild);
+    knotCircles = [];
+    var d = "";
+    for (var i = 0; i < dts.length; i++) {
+      var x0 = xOfWall(cumT[i]);
+      var x1 = xOfWall(cumT[i + 1]);
+      var slow = dts[i] >= 30;
+      var band = el("rect", {
+        x: x0, y: PAD_T, width: Math.max(0, x1 - x0), height: plotH,
+        fill: slow ? "#d4a05b" : "#5b9fd4",
+        "fill-opacity": slow ? "0.12" : "0.10"
+      });
+      gBands.appendChild(band);
+      var mid = (x0 + x1) / 2;
+      var lab = el("text", {
+        x: mid, y: PAD_T + plotH + 16, fill: slow ? "#b8843a" : "#4a87b8",
+        "font-size": "10", "font-family": "ui-monospace,monospace", "text-anchor": "middle"
+      });
+      lab.textContent = dts[i].toFixed(dts[i] % 1 ? 1 : 0) + "ms";
+      gBands.appendChild(lab);
+      var tag = el("text", {
+        x: mid, y: PAD_T + plotH + 30, fill: "currentColor", "fill-opacity": "0.4",
+        "font-size": "9", "font-family": "ui-monospace,monospace", "text-anchor": "middle"
+      });
+      tag.textContent = slow ? "慢" : "快";
+      gBands.appendChild(tag);
+    }
+    for (var k = 0; k < N_KNOTS; k++) {
+      var x = xOfWall(cumT[k]);
+      var y = yOfJoint(joints[k]);
+      d += (k === 0 ? "M" : "L") + x + " " + y + " ";
+      var c = el("circle", {
+        cx: x, cy: y, r: 6, fill: "#c4a574", stroke: "#8a6d3b", "stroke-width": "1.5"
+      });
+      gKnots.appendChild(c);
+      knotCircles.push(c);
+      var tx = el("text", {
+        x: x, y: y - 12, fill: "currentColor", "fill-opacity": "0.55",
+        "font-size": "10", "font-family": "ui-monospace,monospace", "text-anchor": "middle"
+      });
+      tx.textContent = "p" + k;
+      gKnots.appendChild(tx);
+      var tick = el("line", {
+        x1: x, y1: PAD_T + plotH, x2: x, y2: PAD_T + plotH + 6,
+        stroke: "currentColor", "stroke-opacity": "0.35", "stroke-width": "1"
+      });
+      gKnots.appendChild(tick);
+    }
+    pathEl.setAttribute("d", d.trim());
+  }
+
+  function clearSamples() {
+    samples = [];
+    while (gSamples.firstChild) gSamples.removeChild(gSamples.firstChild);
+    while (gChords.firstChild) gChords.removeChild(gChords.firstChild);
+    for (var i = 0; i < knotCircles.length; i++) {
+      knotCircles[i].setAttribute("stroke", "#8a6d3b");
+      knotCircles[i].setAttribute("stroke-width", "1.5");
+      knotCircles[i].setAttribute("stroke-dasharray", "");
+    }
+  }
+
+  function hitKnot(p) {
+    return Math.abs(p - Math.round(p)) < 0.03;
+  }
+  function skippedKnots(p0, p1) {
+    var out = [];
+    var lo = Math.ceil(p0 + 1e-9);
+    var hi = Math.floor(p1 - 1e-9);
+    for (var k = lo; k <= hi; k++) {
+      if (k > 0 && k < N_KNOTS - 1) out.push(k);
+    }
+    return out;
+  }
+
+  function drawSample(s, hot) {
+    var dot = el("circle", {
+      cx: xOfProgress(s.p), cy: yOfJoint(s.j),
+      r: hot ? 4.5 : 3.2,
+      fill: "#3d9b6e", "fill-opacity": hot ? "1" : "0.55",
+      stroke: hot ? "#1f6b45" : "none", "stroke-width": hot ? "1.2" : "0"
+    });
+    gSamples.appendChild(dot);
+  }
+
+  function redrawTrail() {
+    while (gSamples.firstChild) gSamples.removeChild(gSamples.firstChild);
+    while (gChords.firstChild) gChords.removeChild(gChords.firstChild);
+    for (var i = 0; i < samples.length; i++) {
+      if (i > 0) {
+        var a = samples[i - 1], b = samples[i];
+        gChords.appendChild(el("line", {
+          x1: xOfProgress(a.p), y1: yOfJoint(a.j),
+          x2: xOfProgress(b.p), y2: yOfJoint(b.j),
+          stroke: "#9aa3ad", "stroke-width": "1.4",
+          "stroke-dasharray": "3 3", "stroke-opacity": "0.85"
+        }));
+      }
+      drawSample(samples[i], i === samples.length - 1);
+    }
+    var landed = {};
+    for (var s = 0; s < samples.length; s++) {
+      if (hitKnot(samples[s].p)) landed[Math.round(samples[s].p)] = true;
+    }
+    var maxP = samples.length ? samples[samples.length - 1].p : 0;
+    for (var k = 0; k < knotCircles.length; k++) {
+      var circ = knotCircles[k];
+      if (landed[k]) {
+        circ.setAttribute("stroke", "#3d9b6e");
+        circ.setAttribute("stroke-width", "2.5");
+        circ.setAttribute("stroke-dasharray", "");
+      } else if (k > 0 && k < N_KNOTS - 1 && maxP > k) {
+        circ.setAttribute("stroke", "#c97b6a");
+        circ.setAttribute("stroke-width", "2.2");
+        circ.setAttribute("stroke-dasharray", "3 2");
+      } else {
+        circ.setAttribute("stroke", "#8a6d3b");
+        circ.setAttribute("stroke-width", "1.5");
+        circ.setAttribute("stroke-dasharray", "");
+      }
+    }
+  }
+
+  function paintHud() {
+    if (elT) elT.textContent = String(Math.round(wallMs));
+    if (elP) elP.textContent = progress.toFixed(2);
+    if (elDp) elDp.textContent = lastDp == null ? "—" : lastDp.toFixed(2);
+    if (elDti) elDti.textContent = dtAtProgress(progress).toFixed(1);
+    if (elN) elN.textContent = String(beats);
+  }
+
+  function paintCursor() {
+    var x = xOfProgress(progress);
+    var y = yOfJoint(jointAt(progress));
+    cursorLine.setAttribute("x1", x);
+    cursorLine.setAttribute("x2", x);
+    cursorDot.setAttribute("cx", x);
+    cursorDot.setAttribute("cy", y);
+  }
+
+  function setNote(msg) {
+    if (noteEl) noteEl.textContent = msg;
+  }
+
+  function advanceOne() {
+    if (progress >= N_KNOTS - 1 - 1e-9) {
+      setNote("到头了：progress 钉在最后一帧。复位可重看。");
+      pause();
+      return false;
+    }
+    var p0 = progress;
+    var dtSeg0 = dtAtProgress(p0);
+    progress = advanceProgress(progress, CTRL_MS);
+    wallMs += CTRL_MS;
+    beats += 1;
+    lastDp = progress - p0;
+    samples.push({ p: progress, j: jointAt(progress), t: wallMs });
+    var skipped = skippedKnots(p0, progress);
+    redrawTrail();
+    paintCursor();
+    paintHud();
+    var extra = "";
+    if (skipped.length) {
+      extra = " 跨过 " + skipped.map(function (k) { return "p" + k; }).join(",") +
+        "（曲线仍过该点，本拍 r 未落在其上）。";
+    } else {
+      extra = " 当前段 dt=" + dtSeg0.toFixed(1) + "ms → Δp≈" +
+        (CTRL_MS / dtSeg0).toFixed(2) + "；宽段绿点密、窄段疏。";
+    }
+    setNote("advance(10ms)：progress " + p0.toFixed(2) + "→" + progress.toFixed(2) + "。" + extra);
+    return progress < N_KNOTS - 1 - 1e-9;
+  }
+
+  function applyMode(resetPlay) {
+    rebuildCum();
+    paintRuler();
+    if (resetPlay) {
+      progress = 0;
+      wallMs = 0;
+      beats = 0;
+      lastDp = null;
+      clearSamples();
+    } else {
+      // Remap trail positions after ruler change; keep progress if still valid.
+      progress = Math.min(progress, N_KNOTS - 1);
+      wallMs = wallOfProgress(progress);
+      redrawTrail();
+    }
+    paintCursor();
+    paintHud();
+  }
+
+  function reset() {
+    pause();
+    applyMode(true);
+    setNote(
+      modeKey() === "qp"
+        ? "QP 非均匀：dt≈33/33/24/18/15 ms。墙钟轴上棕点间距不等；宽段（慢）绿点更密。"
+        : "均匀 33.3ms：对照用。真机 QP 后一般不是这样。"
+    );
+  }
+
+  function pause() {
+    playing = false;
+    if (timer) { clearInterval(timer); timer = 0; }
+    if (btnToggle) btnToggle.textContent = "播放";
+  }
+
+  function play() {
+    if (progress >= N_KNOTS - 1 - 1e-9) reset();
+    playing = true;
+    if (btnToggle) btnToggle.textContent = "暂停";
+    timer = setInterval(function () {
+      if (!advanceOne()) pause();
+    }, 200);
+  }
+
+  if (btnToggle) {
+    btnToggle.addEventListener("click", function () { playing ? pause() : play(); });
+  }
+  if (btnStep) {
+    btnStep.addEventListener("click", function () { pause(); advanceOne(); });
+  }
+  if (btnReset) btnReset.addEventListener("click", reset);
+  for (var r = 0; r < radios.length; r++) {
+    radios[r].addEventListener("change", function () {
+      pause();
+      applyMode(true);
+      setNote(
+        modeKey() === "qp"
+          ? "已切到 QP 非均匀 dt（接触慢 / 搬运快）。路点几何不变，只改墙钟间距。"
+          : "已切到均匀 33.3ms 对照。再切回 QP 可看棕点被「挤/拉开」。"
+      );
+    });
+  }
+
+  rebuildCum();
+  paintRuler();
+  reset();
+})();
+</script>
+
+
+  </body>
+</html>

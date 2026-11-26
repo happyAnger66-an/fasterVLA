@@ -82,6 +82,43 @@ def test_plan_buffer_advance_nonuniform_step_dt() -> None:
     assert buf.progress == pytest.approx(2.5, abs=1e-9)
 
 
+# 用例: reference_horizon(n, dt) — 第 k 行 = 推进 k·dt 后的 reference；不改 progress；
+#       非均匀 step_dt；越过计划末尾保持最后一帧；linear / pchip 都一致
+# 参数: interpolation
+@pytest.mark.parametrize("interp", ["linear", "pchip"])
+def test_plan_buffer_reference_horizon_matches_advance(interp: str) -> None:
+    step_dt = np.array([0.033, 0.033, 0.024, 0.018, 0.015] + [0.03] * 25, dtype=np.float64)
+    timed = _timed(step_dt=step_dt)
+    buf = PlanBuffer(interpolation=interp)
+    buf.load(timed)
+    buf.advance(0.021, alpha=1.0)
+    p0 = buf.progress
+
+    dt = 0.01
+    n = 9
+    horizon = buf.reference_horizon(n, dt)
+    assert horizon.shape == (n, 24)
+    assert buf.progress == pytest.approx(p0)
+    np.testing.assert_allclose(horizon[0], buf.reference(t_now=0.0))
+
+    ref_buf = PlanBuffer(interpolation=interp)
+    ref_buf.load(timed)
+    ref_buf.advance(0.021, alpha=1.0)
+    for k in range(1, n):
+        ref_buf.advance(dt, alpha=1.0)
+        np.testing.assert_allclose(horizon[k], ref_buf.reference(t_now=0.0), atol=1e-12)
+
+    end_buf = PlanBuffer(interpolation=interp)
+    end_buf.load(_timed(h=3, step_dt=np.full(3, 0.01)))
+    tail = end_buf.reference_horizon(8, 0.01)
+    np.testing.assert_allclose(tail[-1], end_buf.waypoints[-1])
+
+    with pytest.raises(ValueError):
+        buf.reference_horizon(0, dt)
+    with pytest.raises(ValueError):
+        buf.reference_horizon(3, 0.0)
+
+
 # 用例: alpha=0 时 advance 不推进（接触冻结）
 # 参数: 无
 def test_plan_buffer_advance_alpha_zero_freezes() -> None:

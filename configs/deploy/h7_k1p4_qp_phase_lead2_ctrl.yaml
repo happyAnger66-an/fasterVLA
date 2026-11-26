@@ -1,5 +1,7 @@
 # h7 · 【默认工作点】κ=1.4 Lead2 + 控制护栏（2026-11-25 M4b_ctrl：10/10 一次）
 # 相对盲目 κ=1.4：transport=κ、接触窗×κ、闭爪降 lead、grip_delta 去微抖。
+# 合块门仍为老 soft 4+4（兼容对照）。RTC 稳态「合并后立即推理」见
+#   configs/deploy/h7_k1p4_qp_phase_lead2_ctrl_0x4.yaml（prefix=0）。
 #   fastervla-deploy run --config configs/deploy/h7_k1p4_qp_phase_lead2_ctrl.yaml \
 #     --mode execute --duration-s 180 --tag M4b_ctrl
 

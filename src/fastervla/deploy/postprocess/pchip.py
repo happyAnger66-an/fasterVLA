@@ -51,8 +51,18 @@ def _pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return m
 
 
-def pchip_eval(x: np.ndarray, y: np.ndarray, xq: float) -> np.ndarray:
-    """Evaluate PCHIP at scalar ``xq``. Returns shape ``(D,)``."""
+def pchip_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Public alias for cached evaluation via ``pchip_eval(..., slopes=...)``."""
+    return _pchip_slopes(x, y)
+
+
+def pchip_eval(
+    x: np.ndarray, y: np.ndarray, xq: float, *, slopes: np.ndarray | None = None
+) -> np.ndarray:
+    """Evaluate PCHIP at scalar ``xq``. Returns shape ``(D,)``.
+
+    ``slopes`` from :func:`pchip_slopes` on the same ``(x, y)`` skips recomputation.
+    """
     x = np.asarray(x, dtype=np.float64).reshape(-1)
     y = np.asarray(y, dtype=np.float64)
     squeeze = y.ndim == 1
@@ -71,7 +81,12 @@ def pchip_eval(x: np.ndarray, y: np.ndarray, xq: float) -> np.ndarray:
     if xq_f >= x[-1]:
         out = y[-1].copy()
         return out[0] if squeeze else out
-    m = _pchip_slopes(x, y)
+    if slopes is None:
+        m = _pchip_slopes(x, y)
+    else:
+        m = np.asarray(slopes, dtype=np.float64)
+        if m.ndim == 1:
+            m = m[:, None]
     i = int(np.searchsorted(x, xq_f, side="right") - 1)
     i = max(0, min(i, n - 2))
     h = x[i + 1] - x[i]

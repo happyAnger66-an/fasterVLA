@@ -34,6 +34,11 @@ class AcadosMpcTrackerConfig:
     q_max: np.ndarray | None = None
     w_track0: float = 10.0
     w_ddy: float = 10.0
+    # Horizon reference:
+    #   linear — r → r_{+1 model frame} lerp over N stages (legacy).
+    #   plan   — PlanBuffer samples at t + k·dt_s (true preview; caller passes
+    #            ``ref_horizon``; falls back to linear if missing).
+    preview: str = "linear"
     fallback: str = "lead"
     # If True, build the acados OCP at construction time (compiles C code once).
     eager_build: bool = True
@@ -51,6 +56,10 @@ class AcadosMpcTrackerConfig:
             raise ValueError("solve_budget_ms must be > 0")
         if self.fallback != "lead":
             raise ValueError(f"unsupported fallback {self.fallback!r}")
+        preview = str(self.preview or "linear").lower()
+        if preview not in ("linear", "plan"):
+            raise ValueError(f"unknown preview {self.preview!r}")
+        self.preview = preview
         nq = int(self.arm_dim)
         if self.q_min is not None:
             self.q_min = np.asarray(self.q_min, dtype=np.float64).reshape(-1)
@@ -154,7 +163,10 @@ class AcadosMpcTracker:
         now: float,
         blending: bool = False,
         contact: bool = False,
+        ref_horizon: np.ndarray | None = None,
     ) -> np.ndarray:
+        """``ref_horizon``: arm refs ``(N+1, arm_dim)`` at ``now + k·dt_s``; used when
+        ``preview='plan'``."""
         q_hat_arr = np.asarray(q_hat, dtype=np.float64).reshape(-1)
         ref = np.asarray(reference, dtype=np.float64).reshape(-1)
         if q_hat_arr.shape[0] != self.config.arm_dim:
@@ -189,6 +201,13 @@ class AcadosMpcTracker:
                 )
 
         ref_arm = ref[self.ARM_SLICE]
+        horizon = None
+        if self.config.preview == "plan" and ref_horizon is not None:
+            horizon = np.asarray(ref_horizon, dtype=np.float64)
+            if horizon.ndim != 2 or horizon.shape[1] != self.config.arm_dim:
+                raise ValueError(
+                    f"ref_horizon must be (K, {self.config.arm_dim}), got {horizon.shape}"
+                )
         t0 = time.perf_counter()
         try:
             u_arm, status, solve_ms = self._solve(
@@ -202,6 +221,7 @@ class AcadosMpcTracker:
                 ),
                 now=float(now),
                 contact=bool(contact),
+                ref_horizon=horizon,
             )
         except Exception:
             return self._fallback(
@@ -281,6 +301,7 @@ class AcadosMpcTracker:
         ref_vel: np.ndarray,
         now: float,
         contact: bool = False,
+        ref_horizon: np.ndarray | None = None,
     ) -> tuple[np.ndarray, str, float]:
         """Native acados SQP-RTI step. Returns ``(u_arm, status, solve_ms)``."""
         _ = (ref_vel, now)
@@ -289,10 +310,12 @@ class AcadosMpcTracker:
             raise RuntimeError(self._build_error or "acados solver not available")
 
         n = int(self.config.horizon_n)
-        # Horizon reference: hold current ref, then blend toward ahead.
-        if n <= 1:
+        if ref_horizon is not None:
+            ai = np.asarray(ref_horizon, dtype=np.float64)
+        elif n <= 1:
             ai = ref_arm.reshape(1, -1).copy()
         else:
+            # Legacy: hold current ref, then blend toward ~1 model frame ahead.
             alpha = np.linspace(0.0, 1.0, n, dtype=np.float64).reshape(-1, 1)
             ai = (1.0 - alpha) * ref_arm.reshape(1, -1) + alpha * ref_ahead.reshape(
                 1, -1

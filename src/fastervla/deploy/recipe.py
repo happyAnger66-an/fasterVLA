@@ -43,6 +43,7 @@ _CLI_FIELD_MAP: dict[tuple[str, str], str] = {
     ("inference", "arm_chunk_filter"): "arm_chunk_filter",
     ("inference", "arm_chunk_filter_cutoff_hz"): "arm_filter_cutoff_hz",
     ("inference", "arm_interpolation"): "arm_interp",
+    ("inference", "mpc_preview"): "mpc_preview",
     ("inference", "hold_gripper"): "hold_gripper",
     ("inference", "t_infer_min_s"): "t_infer_min_s",
     ("inference", "t_switch_min_s"): "t_switch_min_s",
