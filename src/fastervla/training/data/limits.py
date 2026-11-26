@@ -12,11 +12,23 @@ import yaml
 
 
 @dataclass
+class GripperNoSkip:
+    """Dense-sample around gripper open/close; do not velocity-skip through it."""
+
+    dims: list[int] = field(default_factory=lambda: [22, 23])
+    delta: float = 0.02
+    # Half-width in seconds (±window_s around each gripper change), like deploy contact.
+    window_s: float = 1.5
+    enabled: bool = True
+
+
+@dataclass
 class JointVelocityLimits:
     joint_names: list[str]
     v_max: np.ndarray
     velocity_scale: float
     ignore_velocity_dims: list[int] = field(default_factory=list)
+    gripper_no_skip: GripperNoSkip = field(default_factory=GripperNoSkip)
 
 
 def load_joint_velocity_limits(path: str | Path) -> JointVelocityLimits:
@@ -37,11 +49,21 @@ def load_joint_velocity_limits(path: str | Path) -> JointVelocityLimits:
         )
 
     ignore = list(data.get("ignore_velocity_dims") or [])
+    grip_raw = data.get("gripper_no_skip") or {}
+    if not isinstance(grip_raw, dict):
+        raise TypeError("gripper_no_skip must be a mapping when present")
+    gripper_no_skip = GripperNoSkip(
+        dims=[int(d) for d in grip_raw.get("dims", [22, 23])],
+        delta=float(grip_raw.get("delta", 0.02)),
+        window_s=float(grip_raw.get("window_s", 1.5)),
+        enabled=bool(grip_raw.get("enabled", True)),
+    )
     return JointVelocityLimits(
         joint_names=joint_names,
         v_max=v_max,
         velocity_scale=float(data["velocity_scale"]),
         ignore_velocity_dims=ignore,
+        gripper_no_skip=gripper_no_skip,
     )
 
 

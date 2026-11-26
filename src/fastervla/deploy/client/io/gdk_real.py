@@ -63,8 +63,9 @@ class GdkEnvConfig:
     sdk_source_ip: str = "10.42.1.101"
     discovery_uri: str = "http://10.42.1.101:2379"
     robot_aid: str = REQUIRED_ROBOT_AID
-    # Known-bad right gripper on this unit; ignore its health / end_state errors.
-    ignore_right_gripper_health: bool = True
+    # Legacy g2s: right end-state bus can block; when True, skip get_end_state and
+    # leave grip obs at last value (often 0). h7 / healthy G2 must keep False.
+    ignore_right_gripper_health: bool = False
 
 
 def apply_acados_process_env(
@@ -116,6 +117,17 @@ def reexec_with_gdk_env(cfg: GdkEnvConfig, *, flag: str = "_FASTERVLA_GDK_READY"
     os.execv(sys.executable, [sys.executable, "-u", *sys.argv])
 
 
+def _opt_float(row: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        v = row.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    return float("nan")
+
+
 class RealGdkRobot:
     """Maps live ``agibot_gdk.Robot`` + ``Camera`` onto the unit-test robot surface."""
 
@@ -154,6 +166,8 @@ class RealGdkRobot:
             SimpleNamespace(
                 name=str(row.get("name")),
                 position=float(row.get("motor_position")),
+                velocity=_opt_float(row, "motor_velocity", "velocity"),
+                effort=_opt_float(row, "motor_current", "motor_effort", "effort"),
                 timestamp_ms=stamp_ms,
                 error_code=int(row.get("error_code") or 0),
             )

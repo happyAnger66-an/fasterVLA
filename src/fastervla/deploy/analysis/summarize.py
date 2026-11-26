@@ -8,6 +8,11 @@ from typing import Any
 
 import numpy as np
 
+from fastervla.deploy.analysis.ball_cycles import analyze_ball_cycles
+from fastervla.deploy.analysis.control_quality import (
+    control_headline,
+    control_quality_metrics,
+)
 from fastervla.deploy.analysis.jitter import chunk_metrics, exec_metrics
 from fastervla.deploy.analysis.metrics import compute_run_metrics, wide_row
 from fastervla.deploy.analysis.tracking import tracking_metrics
@@ -32,6 +37,7 @@ def analyze_run(
     control_hz: float = 100.0,
     urdf: str | Path | None = None,
     ee_stride: int = 5,
+    control: bool = True,
 ) -> dict[str, Any]:
     """Analyze one ``robot-live-*`` directory.
 
@@ -151,7 +157,27 @@ def analyze_run(
         "accuracy": cats["accuracy"],
         "metrics_meta": cats["meta"],
     }
+    if control:
+        summary["control"] = control_quality_metrics(
+            ctl, urdf_hint=str(urdf) if urdf is not None else None
+        )
+        summary["control_headline"] = control_headline(summary["control"])
+    summary["balls"] = analyze_ball_cycles(ctl)
     summary["wide"] = wide_row(summary)
+    summary["wide"].update(summary.get("control_headline") or {})
+    balls = summary.get("balls") or {}
+    if balls.get("n_balls") is not None:
+        summary["wide"]["n_balls"] = balls.get("n_balls")
+        summary["wide"]["balls_per_min"] = balls.get("balls_per_min")
+        for src, dst in (
+            ("grasp_to_place", "grasp_to_place_p50_s"),
+            ("release_to_grasp", "release_to_grasp_p50_s"),
+            ("release_to_release", "release_to_release_p50_s"),
+        ):
+            summary["wide"][dst] = (balls.get(src) or {}).get("p50")
+        summary["wide"]["seek_dwell_frac_p50"] = (balls.get("seek_motion") or {}).get(
+            "dwell_frac_p50"
+        )
 
     # Compact headline for CLI / dashboards (four categories, no prog_jump).
     summary["headline"] = {
@@ -188,6 +214,30 @@ def analyze_run(
         or track_m.get("cmd_track_p95_step_rad"),
         "meas_hf3_mrad": exec_m.get("meas_hf3_mrad_mean"),
     }
+    ch = summary.get("control_headline") or {}
+    for key in (
+        "lag_ref_p50_ms",
+        "lag_ref_p95_ms",
+        "xcorr_ref_p50_ms",
+        "ee_contour_ref_p95_mm",
+        "grip_close_err_p50_mm",
+    ):
+        summary["headline"][key] = ch.get(key)
+    balls = summary.get("balls") or {}
+    summary["headline"]["n_balls"] = balls.get("n_balls")
+    summary["headline"]["balls_per_min"] = balls.get("balls_per_min")
+    summary["headline"]["grasp_to_place_p50_s"] = (balls.get("grasp_to_place") or {}).get(
+        "p50"
+    )
+    summary["headline"]["release_to_grasp_p50_s"] = (
+        balls.get("release_to_grasp") or {}
+    ).get("p50")
+    summary["headline"]["release_to_release_p50_s"] = (
+        balls.get("release_to_release") or {}
+    ).get("p50")
+    summary["headline"]["seek_dwell_frac_p50"] = (balls.get("seek_motion") or {}).get(
+        "dwell_frac_p50"
+    )
     return summary
 
 

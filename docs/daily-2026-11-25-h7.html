@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>fasterVLA G2 日报 2026-11-25 · h7</title>
+<style>
+:root {
+  --bg:#f6f4ef; --card:#fffdf8; --ink:#1c1916; --muted:#6b645c;
+  --line:#ddd4c6; --accent:#0f6b5c; --warn:#9a3412; --hi:#fff3d6;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:linear-gradient(180deg,#efe8dc 0%, var(--bg) 240px);
+  color:var(--ink); font:15px/1.55 var(--sans);
+}
+main { max-width:1180px; margin:0 auto; padding:28px 18px 64px; }
+h1 { font-size:1.7rem; margin:0 0 6px; letter-spacing:-0.02em; }
+h3 { font-size:1rem; margin:18px 0 8px; }
+h2 { font-size:1.15rem; margin:28px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+.sub { color:var(--muted); margin:0 0 18px; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:16px 0 8px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+.card b { display:block; font-size:1.25rem; color:var(--accent); }
+.card span { color:var(--muted); font-size:0.85rem; }
+.note, .box { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:10px 0; }
+.box.warn { border-color:#e7b6a0; background:#fff7f2; }
+.box.ok { border-color:#a7d4c8; background:#f2fbf8; }
+ul { margin:8px 0 0 18px; padding:0; }
+ol { margin:8px 0 0 18px; padding:0; }
+li { margin:4px 0; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; background:var(--card); }
+th, td { border:1px solid var(--line); padding:6px 7px; text-align:right; white-space:nowrap; }
+th:nth-child(1), td:nth-child(1),
+th:nth-child(2), td:nth-child(2),
+th:nth-child(3), td:nth-child(3) { text-align:left; }
+th { background:#efe7da; position:sticky; top:0; z-index:1; }
+tr.hi { background:var(--hi); }
+code { font-family:var(--mono); font-size:0.92em; }
+.scroll { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+.footer { margin-top:28px; color:var(--muted); font-size:0.85rem; }
+.best { background:#d8f3e7; color:#0f6b5c; font-weight:600; }
+.worst { background:#fde8dc; color:#9a3412; font-weight:600; }
+span.best, span.worst { padding:1px 6px; border-radius:4px; }
+.daily-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1180px);
+  gap: 18px;
+  max-width: 1420px;
+  margin: 0 auto;
+  padding: 28px 18px 64px;
+  align-items: start;
+}
+.daily-layout > main { max-width: none; margin: 0; padding: 0; }
+.toc {
+  position: sticky; top: 16px; max-height: calc(100vh - 32px);
+  overflow: auto; background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 10px 10px;
+}
+.toc-title {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); margin: 0 8px 8px; font-weight: 600;
+}
+.toc-list { display: flex; flex-direction: column; gap: 2px; }
+.toc a {
+  display: block; color: var(--ink); text-decoration: none;
+  font-size: 12.5px; line-height: 1.35; padding: 5px 8px; border-radius: 6px;
+  border-left: 2px solid transparent;
+}
+.toc a.toc-h3 { padding-left: 16px; color: var(--muted); font-size: 12px; }
+.toc a:hover { background: #efe7da; color: var(--accent); }
+.toc a.active {
+  background: #e7f5f0; color: var(--accent); font-weight: 600;
+  border-left-color: var(--accent);
+}
+.toc-top {
+  margin: 10px 8px 0; width: calc(100% - 16px);
+  font: 12px var(--sans); color: var(--muted);
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; cursor: pointer;
+}
+.toc-top:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 980px) {
+  .daily-layout { grid-template-columns: 1fr; padding-top: 12px; }
+  .toc {
+    position: relative; top: 0; max-height: none;
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 8px; align-items: start;
+  }
+  .toc-title { margin: 4px 0 0; }
+  .toc-list {
+    display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px;
+    grid-column: 1 / -1;
+  }
+  .toc a, .toc a.toc-h3 { padding: 4px 8px; border-left: 0; }
+  .toc-top { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+<h1>fasterVLA · G2 真机日报</h1>
+<p class="sub">日期 2026-11-25 · 机器 <code>agi@h7</code> · 任务 badminton651 · 推理 <code>fast60_nvfp4_ep0</code>@8013 · <b>默认锁 κ=1.4 Lead2 控制护栏</b>（<code>h7_k1p4_qp_phase_lead2_ctrl</code>）</p>
+
+<div class="cards">
+  <div class="card"><b>M4b_ctrl</b><span>10/10 · first 100% · 新工作点</span></div>
+  <div class="card"><b>Lead2_stable</b><span>κ1.3 护栏 · first 92% · 更稳</span></div>
+  <div class="card"><b>盲目 κ≥1.4</b><span>晃/打桌 · 已否决</span></div>
+  <div class="card"><b>MPC / Lead3</b><span>不作默认</span></div>
+  <div class="card"><b>下一刀</b><span>训练夹准 · soak 确认</span></div>
+</div>
+
+<div class="box ok">
+<ul>
+<li><b>主结论（终）</b>：默认切 <code>h7_k1p4_qp_phase_lead2_ctrl</code>。夜场 <b>M4b_ctrl</b>：10/10 一次 · 搬运 1.73s · 松→松 4.57s · 闭爪 lead 不再顶满；体感稳且快。护栏版 κ=1.4 成立；盲目 M4/R4 族仍否决。</li>
+<li><b>路径</b>：Seek2 暴露晃+夹不准 → 控制侧抑晃（stable@1.3 → ctrl@1.4）→ first_try 85%→92%→<b>100%</b>。空夹/逼近纠偏的残余仍归训练。</li>
+<li><b>grip_close EE</b>：全日补齐；与 first_try 弱相关（r≈0.29），解释不了夹准。</li>
+</ul>
+</div>
+
+<h2>1. 今日开发</h2>
+<ul>
+<li><b>D1 Lead 可配</b>：配方 <code>lead_tracker:</code> → CLI <code>--lead-*</code> → <code>LeadTrackerConfig</code>；新配方 <code>h7_k1p3_qp_phase_lead2.yaml</code>。</li>
+<li><b>D2 dwell 压缩</b>：TimeAxisQP <code>dwell_kappa_max</code> / <code>dwell_step_rad</code>；配方 <code>h7_k1p3_qp_phase_lead2_dwell.yaml</code>；逐球找球停/慢/快进 analyze。</li>
+<li><b>D3 一键汇总</b>：<code>fastervla-deploy report --run …</code>（球周期 + 时滞 + 夹取 EE）。</li>
+<li><b>--tag / --run-id</b>：目录名带标签；stdout/stderr 双写 <code>run.log</code>；写入 experiment。</li>
+<li><b>D4 晚间</b>：h7 装 acados + 源码编 <code>t_renderer</code> → <code>MPC_READY</code>；推理切 <code>fast60_nvfp4_ep0</code>@8013；门控配方 Lead3 / MPC / κ1.4+Lead2 接触加严。</li>
+<li><b>D5 urdf_fk</b>：挂 <code>/data/project_r/g2_tools/scripts/urdf_fk.py</code>（t2v2 URDF）；<code>report --urdf</code> 全日补出 <code>grip_close_ee_p50</code>。</li>
+<li><b>D6 控制护栏</b>：闭爪降 lead、<code>transport=κ</code>、接触窗×κ、<code>grip_delta</code>；配方 <code>lead2_stable</code> / <code>lead2_ctrl@1.4</code>。</li>
+</ul>
+
+<h2>1.5 今日优化改进（项 × 提升 × 指标）</h2>
+<p class="sub">凡能靠 retimer / tracker 解决的优先落地；夹准中「空夹抖」归训练另册。对照基线：Seek2（lead2@1.3）与盲目 M4@1.4。</p>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>优化项</th>
+<th>改了什么</th>
+<th>提升什么</th>
+<th>数据指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>闭爪降 Lead<br/><code>closed_grip_max_lead_rad=0.05</code></td>
+<td>右爪闭合后 max_lead 0.10→0.05</td>
+<td>抑持球搬运晃（Lead 不再顶满追摆）</td>
+<td>闭爪 lead95：Seek2 <b>0.100</b>（clip≈22%）→ Stable/M4b <b>0.050</b>（clip <b>0%</b>）</td>
+</tr>
+<tr>
+<td>transport 贴紧 κ<br/><code>transport_kappa_max = κ</code></td>
+<td>去掉 1.5/1.8 余量；防 QP 把接触窗省下的时间甩到搬运/放球尖峰</td>
+<td>压 κ↑ 时的晃与打桌</td>
+<td>κ p95：Seek2 <b>1.50</b> → Stable <b>1.32</b> → M4b <b>1.43</b>（封顶生效）；R4 曾冲 1.80 已否决</td>
+</tr>
+<tr>
+<td>接触窗墙钟守恒<br/><code>contact_window_scale_kappa</code></td>
+<td>窗帧 ×κ；<code>contact_kappa=1.0</code>；<code>grip_delta=0.08</code></td>
+<td>高 κ 下夹/放软区不被时间压扁；少误触发微抖</td>
+<td>相对盲目 M4（窗固定帧）：护栏版放球不再炸；M4b place/搬运体感稳</td>
+</tr>
+<tr>
+<td>Lead2_stable@1.3</td>
+<td>上述护栏落在 κ=1.3</td>
+<td>验证护栏：更稳、夹不住变少</td>
+<td>vs Seek2：first_try <b>85%→92%</b>；搬运 1.72→1.85s（峰值换稳）；体感晃↓</td>
+</tr>
+<tr class="hi">
+<td>M4b_ctrl@1.4<br/><b>新默认</b></td>
+<td>护栏 + κ=1.4（非盲目抬速）</td>
+<td>一次率拉满 + 周期保持 Seek2 量级</td>
+<td>first_try <b>100%</b>（10/10）；搬运 <b>1.73s</b>；松→松 <b>4.57s</b>；grip_close EE 3.7mm；旧 M4 first≈89% / bpm 7.26 被翻盘</td>
+</tr>
+<tr>
+<td>urdf_fk 挂载</td>
+<td>h7 <code>g2_tools/scripts/urdf_fk.py</code> + t2v2</td>
+<td>报告可出 EE 跟踪指标</td>
+<td>全日 run 补齐 <code>grip_close_ee_p50</code>；与 first_try r≈0.29（弱）</td>
+</tr>
+<tr>
+<td>门控否决项（对照）</td>
+<td>盲目 κ1.4/1.5、Lead3、MPC 默认、dwell、6+6</td>
+<td>划清「不能靠瞎抬 κ」</td>
+<td>R4b 打桌；M4 first↓；MPC lag↓但一次率↓；Lead3 lag 未压</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="box">
+<p><b>收益链</b>：Seek2 first 85%（重试税）→ Stable 护栏 first 92%（晃↓）→ <b>M4b_ctrl first 100%</b> 且松→松仍 ~4.6s。工作点从「1.3 Lead2」升级为「1.4 Lead2 + 控制护栏」。</p>
+</div>
+
+<h3>1.1 dwell 相对 Lead2 改了什么</h3>
+<div class="box">
+<p>Lead2 与 R3_dwell <b>其余全部相同</b>（κ=1.3、接触窗 1.1、搬运上限 1.5、Lead2 参数、4+4、pchip、ZP@3Hz）。R3 只多了：</p>
+<pre style="margin:8px 0;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap">retimer:
+  dwell_kappa_max: 2.0   # 远离夹爪窗、|Δq|_∞&lt;0.005 的帧硬钉到 2.0×
+  dwell_step_rad: 0.005</pre>
+<p>意图：压缩找球停顿。实测命中帧约 3%，速率跳变 dx_p95 0.30→0.44、dx_max 1.08→1.58 → 体感抽搐；找球停占比本就低（~9%），松→夹未缩短。</p>
+</div>
+
+<h2>2. 跑次总览</h2>
+<p class="sub">人工成功以进筒为准；桶满掉出单独记。口径：松→夹（找球）/ 夹→放（搬运）/ 松→松（单球周期）；松→松 &lt;3s = 重试合并。↓ 越小越好 / ↑ 越大越好。</p>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>tag / run</th><th>配置</th><th>时长</th>
+<th class="num">球/min ↑</th><th class="num">找球 p50 ↓</th><th class="num">搬运 p50 ↓</th><th class="num">周期 p50 ↓</th>
+<th class="num">lag_ref ↓</th><th class="num">grip_close EE ↓</th><th>一次夹 / 体感</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>R0_soft1x</code><br/><code>e0236f</code></td>
+<td>soft 1.0× 默认 lead</td><td>61s</td>
+<td class="worst">4.93</td><td class="worst">4.35</td><td>2.78</td><td class="worst">7.92</td>
+<td>66</td><td>5.4</td>
+<td>5/5 一次 · 最稳最慢（基线）</td>
+</tr>
+<tr>
+<td><code>R1_phase13</code><br/><code>2ffdc1</code></td>
+<td>phase@1.3 默认 lead</td><td>54s</td>
+<td>6.69</td><td>2.95</td><td>2.51</td><td>5.96</td>
+<td class="worst">70</td><td>4.6</td>
+<td>4 一次+1 三次 · 快但时滞差</td>
+</tr>
+<tr class="hi">
+<td><code>Lead2</code> 上午<br/><code>eded97</code></td>
+<td>phase@1.3 + Lead2</td><td>60s</td>
+<td>6.99</td><td>3.77</td><td>2.34</td><td>6.18</td>
+<td class="best">57</td><td class="worst">7.1</td>
+<td>≈5 一次 · 默认工作点候选</td>
+</tr>
+<tr class="hi">
+<td><code>Lead2_retest</code><br/><code>e507e2</code></td>
+<td>phase@1.3 + Lead2</td><td>54s</td>
+<td>5.54</td><td>4.31</td><td class="best">2.19</td><td>6.94</td>
+<td class="best">57</td><td class="best">3.2</td>
+<td>5/5 一次 · 略摆；找球长尾</td>
+</tr>
+<tr class="hi">
+<td><code>Lead2_soak</code><br/><code>91cc5b</code></td>
+<td>phase@1.3 + Lead2 长场</td><td>94s</td>
+<td>7.64</td><td>3.52</td><td>2.31</td><td>5.84</td>
+<td>58</td><td>3.7</td>
+<td>9 一次+1 二次；末球桶满另计</td>
+</tr>
+<tr class="hi">
+<td><code>R4_k15</code><br/><code>a76c35</code></td>
+<td>phase@1.5 + Lead2 · 搬运 1.8</td><td>83s</td>
+<td class="best">7.94</td><td class="best">2.93</td><td class="best">2.16</td><td class="best">5.14</td>
+<td>58</td><td class="best">3.5</td>
+<td>9 一次+1 调 3 次 · 有时晃大 → 次选</td>
+</tr>
+<tr>
+<td><code>R4b_t16</code><br/><code>228875</code></td>
+<td>phase@1.5 + Lead2 · 搬运 1.6</td><td>60s</td>
+<td>6.98*</td><td>3.14</td><td>2.37</td><td>5.55</td>
+<td>60</td><td>4.1</td>
+<td>首场 8/8 一次（幸运）；*开场掉桶</td>
+</tr>
+<tr>
+<td><code>R4b_soak</code><br/><code>401611</code></td>
+<td>同上 · 复测</td><td>39s</td>
+<td>7.77</td><td>2.71</td><td>1.98</td><td>4.42</td>
+<td>63</td><td>4.2</td>
+<td><b>否决</b>：摆动加大；右爪打桌（place 速度/轮廓炸）</td>
+</tr>
+<tr>
+<td><code>R5_6x6</code><br/><code>a804d6</code></td>
+<td>Lead2 · 合块 6+6</td><td>75s</td>
+<td>8.01</td><td>3.20</td><td>2.54</td><td>5.48</td>
+<td>55</td><td>4.1</td>
+<td>自动 8+2 二次；handoff↓；<b>持桶渐歪 → 否决</b></td>
+</tr>
+<tr>
+<td><code>R3_dwell</code><br/><code>a49375</code></td>
+<td>Lead2 + dwell 2.0</td><td>49s</td>
+<td>6.09</td><td>3.84</td><td class="worst">2.85</td><td>6.25</td>
+<td>58</td><td>3.6</td>
+<td>5/5 · 抽搐 → 否决</td>
+</tr>
+<tr class="hi">
+<td><code>M1_Lead2</code><br/><code>d6d4cf</code></td>
+<td>Lead2@1.3 · fast60</td><td>45s</td>
+<td class="best">9.38</td><td>3.14</td><td class="best">1.82</td><td>5.00</td>
+<td>57</td><td>6.8</td>
+<td><b>7/7 一次</b> · 曾锁工作点（已被 M4b 取代）</td>
+</tr>
+<tr class="hi">
+<td><code>M2_Lead3</code><br/><code>760f6b</code></td>
+<td>Lead3 max_lead 0.12</td><td>43s</td>
+<td class="best">9.79</td><td>2.94</td><td class="best">1.72</td><td class="best">4.67</td>
+<td>57</td><td>4.4</td>
+<td>7/7 一次；lag 未↓；持桶略悬空</td>
+</tr>
+<tr>
+<td><code>M3_MPC</code><br/><code>ea23ae</code></td>
+<td>MPC@1.3</td><td>64s</td>
+<td>7.55</td><td class="best">2.31</td><td>1.92</td><td class="best">4.12</td>
+<td class="best">49</td><td class="best">3.3</td>
+<td>first 88%；抓球偶发不准 → 不作默认</td>
+</tr>
+<tr>
+<td><code>M4_k14</code><br/><code>357ff3</code></td>
+<td>κ1.4 Lead2 接触加严</td><td>74s</td>
+<td>7.26</td><td>3.06</td><td>1.79</td><td>4.90</td>
+<td>56</td><td>4.3</td>
+<td>first≈89%；不如 M1 → <b>否决</b></td>
+</tr>
+<tr class="hi">
+<td><code>Seek_audit2</code><br/><code>f30194</code></td>
+<td>Lead2@1.3 复测</td><td>82s</td>
+<td class="best">9.51</td><td>2.71</td><td class="best">1.72</td><td class="best">4.59</td>
+<td>54</td><td>4.1</td>
+<td>10 球全成；~3 球重试；找球顺 · 暴露晃+夹不准</td>
+</tr>
+<tr class="hi">
+<td><code>Lead2_stable</code><br/><code>955896</code></td>
+<td>κ1.3 + 控制护栏</td><td>—</td>
+<td>8.83</td><td>2.89</td><td>1.85</td><td>4.61</td>
+<td>56</td><td>4.6</td>
+<td>first <b>92%</b>；体感晃↓；峰值换稳</td>
+</tr>
+<tr class="hi">
+<td><code>M4b_ctrl</code><br/><code>983ebb</code></td>
+<td>κ1.4 + 控制护栏 · <b>新默认</b></td><td>74s</td>
+<td>8.07*</td><td>2.85</td><td class="best">1.73</td><td class="best">4.57</td>
+<td>59</td><td class="best">3.7</td>
+<td><b>10/10 一次</b>；护栏版 κ1.4 成立；*含开场空档</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="box ok">
+<p><b>晚间门控 → 夜场护栏（同一模型 fast60 · :8013）</b></p>
+<ul>
+<li><b>M1</b> Lead2@1.3 → 曾锁工作点。</li>
+<li><b>M2</b> Lead3 → 中性（lag 未↓）。</li>
+<li><b>M3</b> MPC → lag↓ 一次率↓，实验轨。</li>
+<li><b>M4</b> 盲目 κ=1.4 → 否决。</li>
+<li><b>Seek2</b> → 暴露搬运晃 + 夹不准。</li>
+<li><b>Lead2_stable</b> → 护栏验证（first 92%）。</li>
+<li><b>M4b_ctrl</b> → <strong>新默认</strong>（first 100% · 周期仍 ~4.6s）。</li>
+</ul>
+</div>
+
+<h2>3. 速度分析</h2>
+<p class="sub">三层：①阶段耗时 ②阶段关节速度 ③相对 R0 加速比 + 周期时间拆分（标出后续提速重点）。阶段内移动速度仍用关节范数 (rad/s) 代理；闭爪 EE 跟踪见 §4.3。</p>
+
+<h3>3.1 阶段耗时（找球 / 夹取窗含在找球尾与搬运头 / 搬运 / 放球含在搬运尾）</h3>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">球/min ↑</th>
+<th class="num">找球 松→夹 p50 ↓</th><th class="num">mean</th>
+<th class="num">搬运 夹→放 p50 ↓</th><th class="num">mean</th>
+<th class="num">单球周期 松→松 p50 ↓</th><th class="num">mean</th>
+<th class="num">相对 R0 周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0 soft1x</td>
+<td class="worst">4.93</td><td class="worst">4.35</td><td>4.28</td>
+<td>2.78</td><td>3.20</td>
+<td class="worst">7.92</td><td>7.63</td>
+<td>基线</td>
+</tr>
+<tr>
+<td>R1 phase13</td>
+<td>6.69</td><td>2.95</td><td>3.20</td>
+<td>2.51</td><td>2.59</td>
+<td>5.96</td><td>5.89</td>
+<td>−25%</td>
+</tr>
+<tr class="hi">
+<td>Lead2 上午</td>
+<td>6.99</td><td>3.77</td><td>3.80</td>
+<td>2.34</td><td>2.52</td>
+<td>6.18</td><td>6.37</td>
+<td>−22%</td>
+</tr>
+<tr class="hi">
+<td>Lead2 复测</td>
+<td>5.54</td><td>4.31</td><td>4.85</td>
+<td class="best">2.19</td><td>2.28</td>
+<td>6.94</td><td>7.23</td>
+<td>−12%（找球长尾）</td>
+</tr>
+<tr class="hi">
+<td>Lead2 soak</td>
+<td>7.64</td><td>3.52</td><td>3.36</td>
+<td>2.31</td><td>2.36</td>
+<td>5.84</td><td>5.74</td>
+<td>−26%</td>
+</tr>
+<tr class="hi">
+<td>R4 κ1.5</td>
+<td class="best">7.94</td><td class="best">2.93</td><td>3.08</td>
+<td class="best">2.16</td><td>2.34</td>
+<td class="best">5.14</td><td>5.45</td>
+<td class="best">−35%</td>
+</tr>
+<tr>
+<td>R3 dwell</td>
+<td>6.09</td><td>3.84</td><td>3.82</td>
+<td class="worst">2.85</td><td>2.68</td>
+<td>6.25</td><td>6.64</td>
+<td>−21%（找球未加速）</td>
+</tr>
+<tr class="hi">
+<td>M1 Lead2</td>
+<td class="best">9.38</td><td>3.14</td><td>3.14</td>
+<td class="best">1.82</td><td>1.84</td>
+<td>5.00</td><td>5.01</td>
+<td class="best">−37%</td>
+</tr>
+<tr class="hi">
+<td>M2 Lead3</td>
+<td class="best">9.79</td><td>2.94</td><td>2.84</td>
+<td class="best">1.72</td><td>1.74</td>
+<td class="best">4.67</td><td>4.58</td>
+<td class="best">−41%</td>
+</tr>
+<tr>
+<td>M3 MPC</td>
+<td>7.55</td><td class="best">2.31</td><td>2.58</td>
+<td>1.92</td><td>2.03</td>
+<td class="best">4.12</td><td>4.65</td>
+<td class="best">−48%（重试拉低 bpm）</td>
+</tr>
+<tr>
+<td>M4 κ1.4</td>
+<td>7.26</td><td>3.06</td><td>3.27</td>
+<td>1.79</td><td>2.06</td>
+<td>4.90</td><td>5.38</td>
+<td>−38%（准确率↓）</td>
+</tr>
+<tr class="hi">
+<td>Seek_audit2</td>
+<td class="best">9.51</td><td>2.71</td><td>2.56</td>
+<td class="best">1.72</td><td>2.02</td>
+<td class="best">4.59</td><td>4.61</td>
+<td class="best">−42%</td>
+</tr>
+<tr class="hi">
+<td>Lead2_stable</td>
+<td>8.83</td><td>2.89</td><td>3.32</td>
+<td>1.85</td><td>2.38</td>
+<td class="best">4.61</td><td>5.76</td>
+<td class="best">−42%（mean 被重试抬）</td>
+</tr>
+<tr class="hi">
+<td>M4b_ctrl</td>
+<td>8.07*</td><td>2.85</td><td>2.87</td>
+<td class="best">1.73</td><td class="best">1.73</td>
+<td class="best">4.57</td><td class="best">4.60</td>
+<td class="best">−42% · *含开场空档</td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><b>吞吐排序（全日）</b>：M2 ≈ Seek2 ≈ M1 ≫ Stable/M4b（短场/开场摊薄）≫ 上午 R4/soak ≫ R0。晚间 Lead2 族相对 R0 周期约 −37%～−42%。</li>
+<li><b>找球仍占周期 ~55–63%</b>，但 Seek2 体感找球已顺；搬运晚间已压到 ~1.7–1.8s，余量小。M4b 搬运 mean=p50=1.73（无重试尾）。</li>
+<li><b>重试税</b>：M3/M4/Seek2 的周期 p50 好看，但 first_try&lt;100% 时整场 bpm 掉回 7.x；Seek2 一次球周期 p50 4.46s → 理论 ~13.5 bpm。Stable first 92% → cycle mean 5.76；M4b 100% → mean≈p50。</li>
+<li><b>dwell 无效</b>（上午）：找球未缩短，搬运反而变慢。</li>
+</ul>
+
+<h3>3.2 阶段关节速度（移动快慢）与 URDF 限速差距</h3>
+<p class="sub">speed = 右手臂 cmd 的 <code>max_|q̇|</code> p50/p95（rad/s）。限速利用率 util = <code>max_i(|q̇_i|/vlim_i)</code> 的 <b>p50 / p95</b>；缺口 = 1−util（&gt;0 还有余量，&lt;0 表示 cmd 尖峰顶破 URDF）。G2 URDF R 臂 vlim＝(3.05,3.05,3.76,3.76,3.35×3)。读法：p95 看尖峰是否摸顶；p50 看整体还有多少空间。目标：找球/搬运 util_p95 ≥ <b>80%</b>。</p>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">找球 p50</th><th class="num">p95 ↑</th>
+<th class="num">找球 util p50</th><th class="num">p95 ↑</th>
+<th class="num">夹取 p50</th><th class="num">p95</th>
+<th class="num">搬运 p50</th><th class="num">p95 ↑</th>
+<th class="num">搬运 util p50</th><th class="num">p95 ↑</th>
+<th class="num">放球 p95</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0</td>
+<td>0.59</td><td class="worst">2.12</td>
+<td class="worst">17</td><td class="worst">63</td>
+<td>0.26</td><td>0.40</td>
+<td>0.85</td><td class="worst">3.16</td>
+<td class="worst">25</td><td>94</td>
+<td>0.40</td>
+</tr>
+<tr>
+<td>R1</td>
+<td>0.75</td><td>2.61</td>
+<td>22</td><td>78</td>
+<td>0.31</td><td>0.57</td>
+<td>1.16</td><td>3.73</td>
+<td>32</td><td>111</td>
+<td>1.29</td>
+</tr>
+<tr class="hi">
+<td>Lead2 上午</td>
+<td>0.85</td><td>2.78</td>
+<td>25</td><td>83</td>
+<td>0.28</td><td>0.60</td>
+<td>1.07</td><td>3.46</td>
+<td>30</td><td>103</td>
+<td>0.52</td>
+</tr>
+<tr class="hi">
+<td>Lead2 soak</td>
+<td>0.89</td><td>3.06</td>
+<td>26</td><td class="best">91</td>
+<td>0.33</td><td>0.64</td>
+<td>1.17</td><td>4.04</td>
+<td>33</td><td>120</td>
+<td>1.28</td>
+</tr>
+<tr class="hi">
+<td>R4</td>
+<td>0.82</td><td>3.00</td>
+<td>24</td><td>90</td>
+<td>0.36</td><td>0.70</td>
+<td>1.13</td><td class="best">4.31</td>
+<td>31</td><td class="best">129</td>
+<td>1.59</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>0.91</td><td>2.81</td>
+<td>27</td><td>83</td>
+<td>0.30</td><td>0.53</td>
+<td>1.23</td><td>3.87</td>
+<td>35</td><td>115</td>
+<td>0.44</td>
+</tr>
+<tr class="hi">
+<td>Seek_audit2</td>
+<td>0.68</td><td>2.90</td>
+<td>20</td><td>86</td>
+<td>0.31</td><td>0.82</td>
+<td>1.60</td><td>3.66</td>
+<td>47</td><td>109</td>
+<td class="worst">3.18</td>
+</tr>
+<tr class="hi">
+<td>Lead2_stable</td>
+<td>0.64</td><td>2.86</td>
+<td>19</td><td>86</td>
+<td>0.33</td><td>1.04</td>
+<td>1.46</td><td>3.62</td>
+<td>43</td><td>108</td>
+<td>1.04</td>
+</tr>
+<tr class="hi">
+<td>M4b_ctrl</td>
+<td>0.69</td><td>3.06</td>
+<td>20</td><td class="best">91</td>
+<td>0.35</td><td>0.80</td>
+<td>1.62</td><td>3.65</td>
+<td class="best">48</td><td>109</td>
+<td class="best">0.61</td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><b>p95 vs p50</b>：尖峰（p95）找球已达 86–91%、搬运常 &gt;100%；但中位（p50）找球仍只 ~20%、搬运夜场最好也只 <b>48%</b>（M4b）。整体占空还远未摸顶——余量在「把更多时间推到高速」，不在「把尖峰再抬高」。</li>
+<li><b>衡量目标</b>：找球/搬运 util_p95≥80% 表示尖峰接近硬件限速。R0 找球 p95 仅 63%；夜场 M4b≈91%。p50 目标可另立（例如抬到 40–50%），对应更匀速的加速，而不是更高尖峰。</li>
+<li><b>搬运尖峰已过冲、中位仍有空</b>：Lead2/R4/M4b 搬运 util_p95 常 &gt;100%（cmd 尖峰超 URDF）；同时 p50 从 R0 的 25% 提到 M4b 的 48%。再拧 κ 换峰值性价比为负；若还要吞吐，优先拉高中位占用 / 一次率，而不是峰值。</li>
+<li><b>放球窗</b>：Seek2 place p95 3.18（晃/重开尾巴）；Stable 1.04 → M4b <b>0.61</b>（护栏压住放球尖峰）。</li>
+</ul>
+
+<h3>3.3 各阶段加速情况（相对 R0）</h3>
+<p class="sub">时间加速比 = R0_p50 / 本场_p50（&gt;1 更快）。速度比 = 本场关节速度 / R0（&gt;1 更快）。省下的秒数 = R0 − 本场（找球/搬运拆分）。</p>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">找球时间× ↑</th><th class="num">搬运时间× ↑</th><th class="num">周期× ↑</th>
+<th class="num">找球速度 p95×</th><th class="num">搬运速度 p95×</th>
+<th class="num">夹取速度 p50×</th>
+<th class="num">找球省下 s</th><th class="num">搬运省下 s</th>
+<th class="num">找球占周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0</td>
+<td>1.00</td><td>1.00</td><td>1.00</td>
+<td>1.00</td><td>1.00</td><td>1.00</td>
+<td>0</td><td>0</td>
+<td>55%</td>
+</tr>
+<tr>
+<td>R1</td>
+<td>1.47</td><td>1.11</td><td>1.33</td>
+<td>1.23</td><td>1.18</td><td>1.20</td>
+<td>1.40</td><td>0.27</td>
+<td>50%</td>
+</tr>
+<tr class="hi">
+<td>Lead2 上午</td>
+<td>1.16</td><td>1.19</td><td>1.28</td>
+<td>1.31</td><td>1.09</td><td>1.07</td>
+<td>0.58</td><td>0.44</td>
+<td>61%</td>
+</tr>
+<tr class="hi">
+<td>Lead2 soak</td>
+<td>1.24</td><td>1.21</td><td>1.36</td>
+<td>1.45</td><td>1.28</td><td>1.25</td>
+<td>0.83</td><td>0.47</td>
+<td>60%</td>
+</tr>
+<tr class="hi">
+<td>R4</td>
+<td class="best">1.49</td><td class="best">1.29</td><td class="best">1.54</td>
+<td>1.42</td><td>1.36</td><td>1.36</td>
+<td class="best">1.42</td><td class="best">0.62</td>
+<td>57%</td>
+</tr>
+<tr class="hi">
+<td>R4b t16</td>
+<td>1.39</td><td>1.17</td><td>1.43</td>
+<td>1.51</td><td class="best">1.51</td><td>—</td>
+<td>1.21</td><td>0.41</td>
+<td>57%</td>
+</tr>
+<tr>
+<td>R3 dwell</td>
+<td>1.13</td><td class="worst">0.98</td><td>1.27</td>
+<td>1.33</td><td>1.22</td><td>1.16</td>
+<td>0.51</td><td class="worst">−0.07</td>
+<td>61%</td>
+</tr>
+<tr class="hi">
+<td>Seek_audit2</td>
+<td>1.61</td><td>1.62</td><td>1.73</td>
+<td>1.37</td><td>1.16</td><td>1.19</td>
+<td>1.64</td><td>1.06</td>
+<td>59%</td>
+</tr>
+<tr class="hi">
+<td>Lead2_stable</td>
+<td>1.51</td><td>1.50</td><td>1.72</td>
+<td>1.35</td><td>1.15</td><td>1.27</td>
+<td>1.46</td><td>0.93</td>
+<td>63%</td>
+</tr>
+<tr class="hi">
+<td>M4b_ctrl</td>
+<td>1.53</td><td class="best">1.61</td><td class="best">1.73</td>
+<td>1.44</td><td>1.16</td><td>1.35</td>
+<td>1.50</td><td class="best">1.05</td>
+<td>62%</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3>3.4 后续提速重点</h3>
+<div class="box">
+<ul>
+<li><b>① 夹取一次率是第一杠杆</b>：Seek2 找球已顺；一次成功周期已够 12bpm。差在重试（first≈85–89% → bpm 打回 7.x）。M4b 以护栏换回 first 100%，周期仍 ~4.6s。</li>
+<li><b>② 搬运加速已兑现；尖峰顶满、中位仍有空</b>：晚间搬运时间 p50≈1.7–1.8s；URDF util_p95 常 ≥100%，但 util_p50 最好才 ~48%（§3.2）。盲目 κ1.4（M4）准确率先垮；<b>护栏版 κ1.4（M4b）</b>搬运 1.73 且全一次——再抬峰值不是杠杆，拉高中位占用 / 一次率才是。</li>
+<li><b>③ 开场拿桶 ~9s</b>：左爪约 3.5s 闭合后仍大幅调整至 ~7s，再右臂够首球。摊薄长场、拖累短场与体感；属模型开场技能，非 κ。</li>
+<li><b>④ dwell / Lead3 / MPC / 盲目 κ≥1.4</b>：前三者未解锁更高可靠吞吐；盲目 M4 否决；M4b 护栏另册通过。</li>
+<li><b>⑤ 下一刀</b>：M4b soak；训练「停稳再闭」；控制可小步 κ=1.45（仍 transport=κ）。</li>
+</ul>
+</div>
+
+<h2>4. 精度控制分析</h2>
+<p class="sub">轮廓 / 时滞 / 跟随误差。分<strong>任务阶段</strong>与<strong>命令速度档</strong>两张表。单位：时滞 ms，轮廓/误差 mrad（关节）。</p>
+
+<h3>4.1 按任务阶段</h3>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">净时滞 p50 ↓</th>
+<th class="num">找球 lag</th><th class="num">轮廓 p95</th>
+<th class="num">夹取 lag</th><th class="num">轮廓 p95</th>
+<th class="num">搬运 lag</th><th class="num">轮廓 p95</th>
+<th class="num">放球轮廓 p95</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0</td>
+<td>66</td>
+<td>65</td><td class="best">24</td>
+<td>56</td><td class="best">11</td>
+<td>69</td><td class="best">39</td>
+<td class="best">5</td>
+</tr>
+<tr>
+<td>R1</td>
+<td class="worst">70</td>
+<td class="worst">70</td><td>56</td>
+<td class="worst">62</td><td>13</td>
+<td class="worst">74</td><td>77</td>
+<td>21</td>
+</tr>
+<tr class="hi">
+<td>Lead2 上午</td>
+<td class="best">57</td>
+<td class="best">55</td><td>102</td>
+<td>46</td><td>20</td>
+<td>60</td><td>124</td>
+<td>13</td>
+</tr>
+<tr class="hi">
+<td>Lead2 soak</td>
+<td>58</td>
+<td>56</td><td class="worst">161*</td>
+<td>45</td><td>16</td>
+<td>62</td><td>151*</td>
+<td>30*</td>
+</tr>
+<tr class="hi">
+<td>R4</td>
+<td>58</td>
+<td>59</td><td>111</td>
+<td class="best">44</td><td>19</td>
+<td>61</td><td>151</td>
+<td>28</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>58</td>
+<td>58</td><td>102</td>
+<td>42</td><td>16</td>
+<td>59</td><td class="worst">166</td>
+<td>16</td>
+</tr>
+<tr class="hi">
+<td>M1 Lead2</td>
+<td>57</td>
+<td>58</td><td>83</td>
+<td>44</td><td>18</td>
+<td>59</td><td>60</td>
+<td>21</td>
+</tr>
+<tr class="hi">
+<td>M2 Lead3</td>
+<td>57</td>
+<td>60</td><td>83</td>
+<td class="best">40</td><td>17</td>
+<td>58</td><td>100</td>
+<td>25</td>
+</tr>
+<tr>
+<td>M3 MPC</td>
+<td class="best">49</td>
+<td class="best">50</td><td>96</td>
+<td class="best">36</td><td>20</td>
+<td class="best">48</td><td>112</td>
+<td>55</td>
+</tr>
+<tr>
+<td>M4 κ1.4</td>
+<td>56</td>
+<td>55</td><td>99</td>
+<td>46</td><td>20</td>
+<td>57</td><td>142</td>
+<td class="worst">111</td>
+</tr>
+<tr class="hi">
+<td>Seek_audit2</td>
+<td>54</td>
+<td>55</td><td class="best">61</td>
+<td>45</td><td>20</td>
+<td>57</td><td>95</td>
+<td>120</td>
+</tr>
+<tr class="hi">
+<td>Lead2_stable</td>
+<td>56</td>
+<td>56</td><td>64</td>
+<td>49</td><td>26</td>
+<td>63</td><td>107</td>
+<td>22</td>
+</tr>
+<tr class="hi">
+<td>M4b_ctrl</td>
+<td>59</td>
+<td>59</td><td>67</td>
+<td>41</td><td>20</td>
+<td>62</td><td>96</td>
+<td class="best">15</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="sub">*soak 末球桶满重夹抬高 seek/carry/place 尾部。夹取窗各档轮廓都低（17–26）——关节跟随未垮；晚间不准来自策略闭爪时机，不是 lag。M4b 放球轮廓 p95=15（Seek2/M4 曾 111–120），与护栏压 place 尖峰同向。</p>
+
+<h3>4.3 夹取瞬间与 grip_close EE</h3>
+<div class="box">
+<ul>
+<li><b>指标含义</b>：<code>grip_close_ee_p50</code> = 闭爪边沿时刻，URDF FK 下 cmd 与 meas 的末端位置差（mm）。量的是<strong>跟踪误差</strong>，不是爪到球心距离。</li>
+<li><b>全日分布</b>：含 Stable/M4b，p50 落在 <b>3.2–7.1 mm</b>。晚间：M1 6.8 · M2 4.4 · M3 <span class="best">3.3</span> · M4 4.3 · Seek2 4.1 · Stable 4.6 · M4b 3.7。</li>
+<li><b>vs first_try</b>：Pearson <b>r≈0.29</b>（弱）。一次率 100% 场 EE 均值 <b>4.8 mm</b>，有重试场 <b>4.1 mm</b>（反而略低）。反例：M1 EE 最差档之一却 7/7；M3 EE 最好却 first 88%。→ <b>EE 跟踪带宽够，夹不准不是跟丢</b>。</li>
+<li><b>关节侧印证</b>：闭爪时右臂 |cmd−meas|_∞≈0.02 rad，一次/重试同级；闭爪时仍较快（sp&gt;0.4）：M1 0% / Seek2 一次 36%、重试 67%；失败球多见半开半闭边沿抖。</li>
+<li><b>优化方向</b>：示教最后 2–3cm 停稳再闭；难例微调；报告侧补「闭爪臂速 / 边沿抖动」。Client κ/Lead/MPC 与压 EE mm 都换不来一次率。</li>
+</ul>
+</div>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th><th class="num">first_try ↑</th><th class="num">grip_close EE ↓</th><th>读法</th>
+</tr>
+</thead>
+<tbody>
+<tr class="hi"><td>M1 Lead2</td><td class="best">100%</td><td>6.8</td><td>工作点：EE 偏大仍全一次</td></tr>
+<tr class="hi"><td>M2 Lead3</td><td class="best">100%</td><td>4.4</td><td>全一次；EE 中位</td></tr>
+<tr><td>M3 MPC</td><td>88%</td><td class="best">3.3</td><td>EE 最好 · 一次率↓</td></tr>
+<tr><td>M4 κ1.4</td><td>89%</td><td>4.3</td><td>中位 EE · 不如 M1</td></tr>
+<tr class="hi"><td>Seek_audit2</td><td>85%</td><td>4.1</td><td>EE 正常 · 重试来自时机/对准</td></tr>
+<tr class="hi"><td>Lead2_stable</td><td>92%</td><td>4.6</td><td>护栏 · EE 中位 · 晃↓</td></tr>
+<tr class="hi"><td>M4b_ctrl</td><td class="best">100%</td><td>3.7</td><td>新默认 · EE 好 · 全一次</td></tr>
+<tr><td>Lead2_retest</td><td class="best">100%</td><td class="best">3.2</td><td>全日 EE 最低档之一</td></tr>
+<tr><td>Lead2 上午</td><td class="best">100%</td><td class="worst">7.1</td><td>全日 EE 最高 · 仍全一次</td></tr>
+<tr><td>R4 / R5 族</td><td>80–91%</td><td>3.5–4.5</td><td>EE 与一次率无单调</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>4.2 按命令速度档（lag_ref p50 / 轮廓 p95）</h3>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">0.2–0.5 lag</th><th class="num">轮廓</th>
+<th class="num">0.5–1 lag</th><th class="num">轮廓</th>
+<th class="num">1–2 lag</th><th class="num">轮廓</th>
+<th class="num">≥2 lag</th><th class="num">轮廓</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0</td>
+<td>61</td><td class="best">17</td>
+<td>64</td><td class="best">24</td>
+<td>69</td><td class="best">32</td>
+<td>75</td><td class="best">35</td>
+</tr>
+<tr>
+<td>R1</td>
+<td>65</td><td>19</td>
+<td>69</td><td>31</td>
+<td>73</td><td>61</td>
+<td class="worst">81</td><td>82</td>
+</tr>
+<tr class="hi">
+<td>Lead2 上午</td>
+<td>51</td><td>24</td>
+<td>52</td><td>49</td>
+<td class="best">59</td><td>112</td>
+<td class="best">68</td><td>118</td>
+</tr>
+<tr class="hi">
+<td>Lead2 soak</td>
+<td class="best">48</td><td>32</td>
+<td class="best">50</td><td>62</td>
+<td>60</td><td>120</td>
+<td>72</td><td class="worst">213*</td>
+</tr>
+<tr class="hi">
+<td>R4</td>
+<td>50</td><td>27</td>
+<td>54</td><td>66</td>
+<td>61</td><td>123</td>
+<td>70</td><td>123</td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><b>Lead2 时滞</b>：各速度档均低于同 κ 的 R1；高速档仍 68–70ms，未到 ≤40ms 目标。</li>
+<li><b>高速轮廓代价</b>：κ↑ 后 ≥1 rad/s 档轮廓从 R0≈35 升到 Lead2/R4≈110–120；R4 与上午 Lead2 同级，未再炸。</li>
+<li><b>晃动对应</b>：体感晃主要在搬运高速段轮廓大（~150 mrad），不是夹取窗。</li>
+</ul>
+
+<h2>5. 稳定性分析</h2>
+<p class="sub">晃动 / 摆动 / 速度跳变 / 推理 r2r / 缓冲。↓ 越小越好。</p>
+
+<h3>5.1 晃动 · 跳变 · 跟踪</h3>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">cmd hf3 ↓</th>
+<th class="num">切换跳变 p95 ↓</th>
+<th class="num">跟踪 p95 ↓</th>
+<th class="num">sat 过量 p99 ↓</th>
+<th class="num">acc p95 ↓</th>
+<th class="num">搬运轮廓 p95 ↓</th>
+<th>体感</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0</td>
+<td class="best">2.23</td><td class="best">27.8</td><td class="best">241</td>
+<td class="best">3.05</td><td class="best">30.4</td><td class="best">39</td>
+<td>最稳</td>
+</tr>
+<tr>
+<td>R1</td>
+<td>3.94</td><td>37.8</td><td>296</td>
+<td class="worst">6.23</td><td>32.1</td><td>77</td>
+<td>可</td>
+</tr>
+<tr class="hi">
+<td>Lead2 上午</td>
+<td>5.20</td><td>35.4</td><td>340</td>
+<td>4.73</td><td>38.7</td><td>124</td>
+<td>可接受</td>
+</tr>
+<tr class="hi">
+<td>Lead2 复测</td>
+<td>4.51</td><td>34.0</td><td>401</td>
+<td>5.33</td><td>39.9</td><td>109</td>
+<td>略摆</td>
+</tr>
+<tr class="hi">
+<td>Lead2 soak</td>
+<td>4.36</td><td>39.8</td><td class="worst">410</td>
+<td>3.73</td><td>41.6</td><td>151*</td>
+<td>通过（桶满噪声）</td>
+</tr>
+<tr class="hi">
+<td>R4</td>
+<td>5.10</td><td>35.3</td><td>355</td>
+<td>5.89</td><td>38.7</td><td>151</td>
+<td>有时晃大（非抽搐）</td>
+</tr>
+<tr class="hi">
+<td>R4b t16</td>
+<td>6.54</td><td>43.0</td><td>417</td>
+<td class="best">2.92</td><td>—</td><td>196</td>
+<td>8/8 一次；体感更快；sat↓ → 高速优选</td>
+</tr>
+<tr>
+<td>R5 6+6</td>
+<td>4.52</td><td>35.6</td><td>323</td>
+<td>—</td><td>—</td><td>—</td>
+<td>handoff 跳变≈57（4+4≈190–290）↓；持桶渐歪</td>
+</tr>
+<tr>
+<td>R3 dwell</td>
+<td>5.13</td><td class="worst">41.4</td><td>378</td>
+<td>4.80</td><td class="worst">43.9</td><td class="worst">166</td>
+<td>抽搐 → 否决</td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><b>R4 晃 ≠ dwell 抽搐</b>：hf3/切换跳变与 Lead2 上午同级；差异在搬运轮廓与 sat 过量（5.89 vs 4.73）。</li>
+<li><b>R5 6+6</b>：切换跳变本身不大，handoff 大降；失败模式是<strong>持桶姿态漂移</strong>（少重规划纠正慢），不是 hf3 抽搐。</li>
+<li><b>复测「略摆」</b>：跟踪 p95 401，与体感一致。</li>
+<li><b>全场 empty/starved = 0</b>：缓冲未饿死。</li>
+</ul>
+
+<h3>5.2 推理 r2r 与伺服</h3>
+<div class="scroll">
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th class="num">infer r2r p50 ↓</th><th class="num">p95 ↓</th>
+<th class="num">empty</th><th class="num">starved</th>
+<th class="num">合块 Hz</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>R0</td><td>107</td><td>114</td><td>0</td><td>0</td><td>4.06</td><td rowspan="6" style="text-align:left;vertical-align:middle">推理 r2r 全场 ≈107–109ms，与 κ 无关；非今日瓶颈。加速瓶颈在运动跟随（轮廓/时滞），不在推理。</td></tr>
+<tr><td>R1</td><td>108</td><td>116</td><td>0</td><td>0</td><td>4.35</td></tr>
+<tr class="hi"><td>Lead2 上午</td><td>109</td><td>117</td><td>0</td><td>0</td><td>4.33</td></tr>
+<tr class="hi"><td>Lead2 soak</td><td>108</td><td>116</td><td>0</td><td>0</td><td>4.36</td></tr>
+<tr class="hi"><td>R4</td><td>109</td><td>118</td><td>0</td><td>0</td><td>4.43</td></tr>
+<tr><td>R3</td><td>109</td><td>117</td><td>0</td><td>0</td><td>4.40</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>6. 分支判断</h2>
+<ul>
+<li><b>默认工作点</b>：<code>h7_k1p4_qp_phase_lead2_ctrl</code>（κ=1.4 · Lead2 · transport=κ · 闭爪 lead0.05 · 接触窗×κ · fast60）。</li>
+<li><b>对照保留</b>：<code>h7_k1p3_qp_phase_lead2</code>（M1 基线）、<code>lead2_stable</code>（1.3 护栏）。</li>
+<li><b>停试作默认</b>：盲目 κ≥1.4（无护栏）、transport&gt;κ、合块 6+6、dwell 硬钉、MPC/Lead3 作默认。</li>
+<li><b>下一刀</b>：M4b soak 确认；训练侧「停稳再闭 / 接近更直」；控制侧可小步试 κ=1.45（仍 transport=κ）。</li>
+<li><b>统计规则</b>：松→松 &lt;3s = 重试；桶满/开场掉桶/打桌单独记。</li>
+</ul>
+
+<h2>7. 启动命令</h2>
+<div class="box">
+<pre style="margin:0;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap"># 默认工作点（M4b_ctrl）
+fastervla-deploy run --config configs/deploy/h7_k1p4_qp_phase_lead2_ctrl.yaml \
+  --mode execute --duration-s 180 --tag M4b_ctrl
+
+# 1.3 护栏对照
+fastervla-deploy run --config configs/deploy/h7_k1p3_qp_phase_lead2_stable.yaml \
+  --mode execute --duration-s 180 --tag Lead2_stable
+
+# M1 旧基线 Lead2@1.3（无护栏）
+fastervla-deploy run --config configs/deploy/h7_k1p3_qp_phase_lead2.yaml \
+  --mode execute --duration-s 180 --tag M1_Lead2
+
+fastervla-deploy report --run results/robot-live-&lt;id&gt; --urdf \
+  /home/agi/app/share/genie_robot_description/urdf/G2_t2v2_crsB/model.urdf</pre>
+</div>
+
+<h2>8. 跑次日志</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>时间</th><th>run</th><th>tag</th><th>配置</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td>13:57</td><td><code>135735-b86e21</code></td><td>—</td><td>Lead2 参数</td><td>无 tag 试跑</td></tr>
+<tr><td>14:03</td><td><code>140304-eded97</code></td><td><code>k1p3_qp_phase_lead2</code></td><td>phase+Lead2</td><td>人工 5 进筒一次；2 桶满重夹仍一次</td></tr>
+<tr><td>14:07</td><td><code>140738-a49375</code></td><td><code>R3_dwell</code></td><td>Lead2+dwell2</td><td>5/5 一次；右臂抽搐；找球未加速</td></tr>
+<tr><td>14:15</td><td><code>141534-e0236f</code></td><td><code>R0_soft1x</code></td><td>soft 1.0×</td><td>5/5 一次；基线</td></tr>
+<tr><td>14:21</td><td><code>142112-2ffdc1</code></td><td><code>R1_phase13</code></td><td>phase@1.3 默认 lead</td><td>4 一次+1 三次；时滞 70ms</td></tr>
+<tr><td>14:32</td><td><code>143225-e507e2</code></td><td><code>Lead2_retest</code></td><td>phase+Lead2</td><td>5/5 一次；略摆</td></tr>
+<tr><td>14:43</td><td><code>144344-91cc5b</code></td><td><code>Lead2_soak</code></td><td>phase+Lead2 长场</td><td>10 球；末球桶满；松→松 5.84</td></tr>
+<tr><td>14:52</td><td><code>145238-a76c35</code></td><td><code>R4_k15</code></td><td>phase@1.5 Lead2</td><td>9 一次+1 调 3 次；周期 5.14；有时晃大</td></tr>
+<tr><td>15:12</td><td><code>151226-ce937f</code></td><td><code>Seek_audit</code></td><td>Lead2 4+4</td><td>场景作废：桶初始倾斜；人工成功率差；自动周期≈soak；找球有 7–11s 尾</td></tr>
+<tr><td>15:17</td><td><code>151702-a804d6</code></td><td><code>R5_6x6</code></td><td>Lead2 6+6</td><td>merge 3.5Hz；handoff↓；持桶渐歪；一次夹80%；否决</td></tr>
+<tr><td>15:23</td><td><code>152310-228875</code></td><td><code>R4b_t16</code></td><td>κ1.5 搬运1.6</td><td>首场8/8一次（幸运）；开场掉桶</td></tr>
+<tr><td>15:30</td><td><code>153025-401611</code></td><td><code>R4b_soak</code></td><td>κ1.5 搬运1.6</td><td>否决：摆动加大；右爪打桌；place 轮廓/速度炸</td></tr>
+<tr><td>15:36</td><td><code>153624-b62a88</code></td><td><code>R4b_6x6</code></td><td>κ1.5 t1.6 6+6</td><td>否决：问题相似 + 放球更犹豫；κ1.5 族停试</td></tr>
+<tr><td>19:09</td><td><code>190922-d6d4cf</code></td><td><code>M1_Lead2</code></td><td>Lead2@1.3 · fast60_nvfp4</td><td>门控基线：7/7 一次；bpm 9.38；松→松 5.00；找球 3.14；lag 57ms；流畅 OK</td></tr>
+<tr><td>19:14</td><td><code>191400-760f6b</code></td><td><code>M2_Lead3</code></td><td>Lead3 max_lead0.12</td><td>7/7 一次；bpm 9.79；周期 4.67；lag 仍 57ms（未压下）；右持桶略悬空但放直不影响进筒</td></tr>
+<tr><td>19:17</td><td><code>191741-ea23ae</code></td><td><code>M3_MPC</code></td><td>MPC@1.3</td><td>7一次+1重试；first 88%；bpm 7.55；lag 49ms↓；MPC≈99%（fallback 65tick）；抓球偶发不准 → 不作默认</td></tr>
+<tr><td>19:25</td><td><code>192555-357ff3</code></td><td><code>M4_k14</code></td><td>κ1.4 Lead2 接触加严</td><td>否决：不如 M1；bpm 7.26；first≈89%；lag 仍 56ms；2 球多次；停 κ=1.3</td></tr>
+<tr><td>19:32</td><td><code>193217-f30194</code></td><td><code>Seek_audit2</code></td><td>Lead2@1.3</td><td>10 球全成（分析 n=13）；bpm 9.51；一次周期 p50 4.46；找球顺；~3 球重试；暴露晃+夹不准</td></tr>
+<tr><td>21:38</td><td><code>213854-955896</code></td><td><code>Lead2_stable</code></td><td>κ1.3 控制护栏</td><td>first 92%；搬运 1.85；体感晃↓、夹不住少；闭爪 lead95=0.05</td></tr>
+<tr><td>21:42</td><td><code>214227-983ebb</code></td><td><code>M4b_ctrl</code></td><td>κ1.4 控制护栏 · <b>新默认</b></td><td><b>10/10 一次</b>；搬运 1.73；松→松 4.57；EE 3.7mm；翻盘盲目 M4</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="footer">
+数据：<code>results/robot-live-20261125-*</code> · 汇总 <code>fastervla-deploy report</code> · 昨日日报
+<a href="/topics/robot/deploy/execution/daily/2026-11-24/">2026-11-24</a>
+</div>
+</main>
+<script>
+/** Sticky left TOC for fasterVLA daily HTML. Include at end of <body>. */
+(function () {
+  var main = document.querySelector("main");
+  if (!main) return;
+  var heads = main.querySelectorAll("h2, h3");
+  if (!heads.length) return;
+
+  function slug(text, used) {
+    var base = String(text)
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^\w\u4e00-\u9fff.\-↓↑]+/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase() || "sec";
+    var s = base;
+    var n = 2;
+    while (used[s]) {
+      s = base + "-" + n++;
+    }
+    used[s] = true;
+    return s;
+  }
+
+  var used = {};
+  var nav = document.createElement("nav");
+  nav.className = "toc";
+  nav.setAttribute("aria-label", "本页目录");
+  var title = document.createElement("div");
+  title.className = "toc-title";
+  title.textContent = "目录";
+  nav.appendChild(title);
+  var list = document.createElement("div");
+  list.className = "toc-list";
+  nav.appendChild(list);
+
+  var links = [];
+  heads.forEach(function (h) {
+    if (!h.id) h.id = slug(h.textContent, used);
+    var a = document.createElement("a");
+    a.href = "#" + h.id;
+    a.textContent = h.textContent.trim();
+    a.className = h.tagName === "H3" ? "toc-h3" : "toc-h2";
+    a.dataset.target = h.id;
+    list.appendChild(a);
+    links.push({ a: a, el: h });
+  });
+
+  var layout = document.createElement("div");
+  layout.className = "daily-layout";
+  main.parentNode.insertBefore(layout, main);
+  layout.appendChild(nav);
+  layout.appendChild(main);
+
+  var topBtn = document.createElement("button");
+  topBtn.type = "button";
+  topBtn.className = "toc-top";
+  topBtn.textContent = "顶部";
+  topBtn.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  nav.appendChild(topBtn);
+
+  function setActive() {
+    var y = window.scrollY + 96;
+    var cur = links[0];
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].el.offsetTop <= y) cur = links[i];
+    }
+    links.forEach(function (item) {
+      item.a.classList.toggle("active", item === cur);
+    });
+  }
+  window.addEventListener("scroll", setActive, { passive: true });
+  setActive();
+})();
+</script>
+</body>
+</html>

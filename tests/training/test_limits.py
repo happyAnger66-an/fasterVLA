@@ -24,6 +24,37 @@ def test_load_joint_velocity_limits_reads_fields(tmp_limits_yaml: Path) -> None:
     np.testing.assert_allclose(limits.v_max, [1.0, 2.0, 0.5])
     assert limits.velocity_scale == 1.0
     assert limits.ignore_velocity_dims == []
+    # Defaults when YAML omits gripper_no_skip.
+    assert limits.gripper_no_skip.enabled is True
+    assert limits.gripper_no_skip.window_s == 1.5
+    assert limits.gripper_no_skip.dims == [22, 23]
+
+
+# 用例: YAML 可覆盖夹爪 no-skip 窗口
+# 参数: tmp_path 写带 gripper_no_skip 的配置
+def test_load_gripper_no_skip_override(tmp_path: Path) -> None:
+    path = tmp_path / "grip.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "joint_names": ["j0"],
+                "v_max": [1.0],
+                "velocity_scale": 1.0,
+                "gripper_no_skip": {
+                    "enabled": False,
+                    "dims": [0],
+                    "delta": 0.05,
+                    "window_s": 0.75,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    limits = load_joint_velocity_limits(path)
+    assert limits.gripper_no_skip.enabled is False
+    assert limits.gripper_no_skip.dims == [0]
+    assert limits.gripper_no_skip.delta == 0.05
+    assert limits.gripper_no_skip.window_s == 0.75
 
 
 # 用例: 缺少必填键时报错

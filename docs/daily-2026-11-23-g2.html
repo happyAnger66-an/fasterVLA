@@ -42,6 +42,67 @@ tr.hi { background:var(--hi); }
 code { font-family:var(--mono); font-size:0.92em; }
 .scroll { overflow:auto; border:1px solid var(--line); border-radius:10px; }
 .footer { margin-top:28px; color:var(--muted); font-size:0.85rem; }
+.gloss { font-size:13px; }
+.gloss th:nth-child(1), .gloss td:nth-child(1) { text-align:left; white-space:nowrap; }
+.gloss th:nth-child(2), .gloss td:nth-child(2) { text-align:left; white-space:normal; }
+.gloss th:nth-child(3), .gloss td:nth-child(3) { text-align:left; white-space:nowrap; }
+.tag-good { color:var(--accent); font-weight:600; }
+.tag-bad { color:var(--warn); font-weight:600; }
+.tag-mid { color:var(--muted); font-weight:600; }
+
+.daily-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1180px);
+  gap: 18px;
+  max-width: 1420px;
+  margin: 0 auto;
+  padding: 28px 18px 64px;
+  align-items: start;
+}
+.daily-layout > main { max-width: none; margin: 0; padding: 0; }
+.toc {
+  position: sticky; top: 16px; max-height: calc(100vh - 32px);
+  overflow: auto; background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 10px 10px;
+}
+.toc-title {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); margin: 0 8px 8px; font-weight: 600;
+}
+.toc-list { display: flex; flex-direction: column; gap: 2px; }
+.toc a {
+  display: block; color: var(--ink); text-decoration: none;
+  font-size: 12.5px; line-height: 1.35; padding: 5px 8px; border-radius: 6px;
+  border-left: 2px solid transparent;
+}
+.toc a.toc-h3 { padding-left: 16px; color: var(--muted); font-size: 12px; }
+.toc a:hover { background: #efe7da; color: var(--accent); }
+.toc a.active {
+  background: #e7f5f0; color: var(--accent); font-weight: 600;
+  border-left-color: var(--accent);
+}
+.toc-top {
+  margin: 10px 8px 0; width: calc(100% - 16px);
+  font: 12px var(--sans); color: var(--muted);
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; cursor: pointer;
+}
+.toc-top:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 980px) {
+  .daily-layout { grid-template-columns: 1fr; padding-top: 12px; }
+  .toc {
+    position: relative; top: 0; max-height: none;
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 8px; align-items: start;
+  }
+  .toc-title { margin: 4px 0 0; }
+  .toc-list {
+    display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px;
+    grid-column: 1 / -1;
+  }
+  .toc a, .toc a.toc-h3 { padding: 4px 8px; border-left: 0; }
+  .toc-top { display: none; }
+}
 </style>
 </head>
 <body>
@@ -55,6 +116,27 @@ code { font-family:var(--mono); font-size:0.92em; }
   <div class="card"><b>empty≈0</b><span>高κ推理跟得上</span></div>
   <div class="card"><b>推荐 κ≈1.8–1.9</b><span>lead + 4+4</span></div>
 </div>
+
+<h2>名词解释</h2>
+<p class="sub" style="margin-top:-4px">读表时先看这一节。单位：跟踪/跳变为 mrad，速度为 rad/s，r2r 为 ms。</p>
+<div class="scroll">
+<table class="gloss">
+<thead><tr><th>指标</th><th>含义</th><th>大小怎么读</th></tr></thead>
+<tbody>
+<tr><td><b>合块Hz</b></td><td>每秒合块（换计划）次数。由 prefix/buffer（如 4+4）节流；未节流时可达十多 Hz。</td><td><span class="tag-mid">适中</span>：过密易抖；4+4 后大约几 Hz 较正常。不是越大越好。</td></tr>
+<tr><td><b>臂跟踪p95 / 跟踪p95</b></td><td>臂关节 |cmd−meas| 的 95 分位（贴命令的程度）。</td><td><span class="tag-good">越小越好</span></td></tr>
+<tr><td><b>&gt;100mrad / &gt;100</b></td><td>跟踪误差超过 100mrad 的时间占比。</td><td><span class="tag-good">越小越好</span>（接近 0）</td></tr>
+<tr><td><b>交接参考跳 / 参考跳 p95</b></td><td>合块瞬间参考轨迹的空间跳变幅度。</td><td><span class="tag-good">越小越好</span>（接缝更顺）</td></tr>
+<tr><td><b>命令速度 / 速度 p95</b></td><td>命令关节速度的高分位，反映「跑得有多猛」。</td><td><span class="tag-mid">看加速</span>：κ↑ 通常变大；若很大且跟踪差 → 跟不住。</td></tr>
+<tr><td><b>empty / starved</b></td><td>计划缓冲挖空次数 / 估延迟超过剩余步数的次数。</td><td><span class="tag-good">都要 ≈0</span>；有数说明推理或节流跟不上。</td></tr>
+<tr><td><b>rem↓</b></td><td>剩余模型帧的下限（计划还剩多少）。箭头提醒别掉太低。</td><td><span class="tag-good">越大越安全</span>；过低易 empty。</td></tr>
+<tr><td><b>dur</b></td><td>该次 run 时长（秒）。</td><td><span class="tag-mid">中性</span>：长跑统计更可信。</td></tr>
+<tr><td><b>r2r</b></td><td>推理请求 → 结果就绪的墙钟延迟（request-to-ready）。</td><td><span class="tag-good">越小越好</span>；今日 ~29ms 说明推理不紧。</td></tr>
+<tr><td><b>κ / tracker / p/b / filter</b></td><td>时间轴倍速；跟踪器（none/lead/mpc）；prefix/buffer 合块门；臂路径滤波（如 ZP）。</td><td>配置列，用于对照，无「大小好坏」。</td></tr>
+</tbody>
+</table>
+</div>
+<p class="sub">一句话：跟踪 / 跳变 / empty·starved / r2r → 小好；rem → 别太小；合块Hz → 适中；速度 → 反映快不快，要和跟踪一起看。</p>
 
 <h2>1. 今日结论</h2>
 <div class="box ok">
@@ -229,5 +311,84 @@ code { font-family:var(--mono); font-size:0.92em; }
 指标脚本输入：<code>/tmp/g2s_daily_20261123.json</code> · 本页为离线静态 HTML。
 </p>
 </main>
+<script>
+/** Sticky left TOC for fasterVLA daily HTML. Include at end of <body>. */
+(function () {
+  var main = document.querySelector("main");
+  if (!main) return;
+  var heads = main.querySelectorAll("h2, h3");
+  if (!heads.length) return;
+
+  function slug(text, used) {
+    var base = String(text)
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^\w\u4e00-\u9fff.\-↓↑]+/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase() || "sec";
+    var s = base;
+    var n = 2;
+    while (used[s]) {
+      s = base + "-" + n++;
+    }
+    used[s] = true;
+    return s;
+  }
+
+  var used = {};
+  var nav = document.createElement("nav");
+  nav.className = "toc";
+  nav.setAttribute("aria-label", "本页目录");
+  var title = document.createElement("div");
+  title.className = "toc-title";
+  title.textContent = "目录";
+  nav.appendChild(title);
+  var list = document.createElement("div");
+  list.className = "toc-list";
+  nav.appendChild(list);
+
+  var links = [];
+  heads.forEach(function (h) {
+    if (!h.id) h.id = slug(h.textContent, used);
+    var a = document.createElement("a");
+    a.href = "#" + h.id;
+    a.textContent = h.textContent.trim();
+    a.className = h.tagName === "H3" ? "toc-h3" : "toc-h2";
+    a.dataset.target = h.id;
+    list.appendChild(a);
+    links.push({ a: a, el: h });
+  });
+
+  var layout = document.createElement("div");
+  layout.className = "daily-layout";
+  main.parentNode.insertBefore(layout, main);
+  layout.appendChild(nav);
+  layout.appendChild(main);
+
+  var topBtn = document.createElement("button");
+  topBtn.type = "button";
+  topBtn.className = "toc-top";
+  topBtn.textContent = "顶部";
+  topBtn.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  nav.appendChild(topBtn);
+
+  function setActive() {
+    var y = window.scrollY + 96;
+    var cur = links[0];
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].el.offsetTop <= y) cur = links[i];
+    }
+    links.forEach(function (item) {
+      item.a.classList.toggle("active", item === cur);
+    });
+  }
+  window.addEventListener("scroll", setActive, { passive: true });
+  setActive();
+})();
+
+</script>
 </body>
 </html>

@@ -296,3 +296,19 @@ def test_g2_healthy_read_state_and_images(fake_robot: FakeGdkRobot, g2_cfg: Agib
     for v in imgs.values():
         assert isinstance(v, (bytes, bytearray)) and v.startswith(b"\xff\xd8")
     plat.close()
+
+
+# 用例: 关节行带 velocity/effort 时填入 qd 与 extras；附带读耗时与墙钟
+def test_g2_state_reads_velocity_and_effort(
+    fake_robot: FakeGdkRobot, g2_cfg: AgibotG2Config
+) -> None:
+    for i, j in enumerate(fake_robot._status.joint_states):
+        j.velocity = 0.1 * i
+        j.effort = float(i)
+    plat = AgibotG2Platform(robot=fake_robot, config=g2_cfg, mode="shadow")
+    st = plat.state.read()
+    np.testing.assert_allclose(st.qd[:22], 0.1 * np.arange(22))
+    assert st.qd[22] == 0.0
+    np.testing.assert_allclose(st.extras["effort"][:22], np.arange(22, dtype=float))
+    assert st.extras["read_ms"] >= 0.0
+    assert st.extras["wall_ms"] > 1e12

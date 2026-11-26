@@ -11,6 +11,7 @@ from fastervla.training.resample.velocity_skip import (
     build_skip_chunk,
     build_skip_chunk_indices,
     farthest_legal_index,
+    gripper_no_skip_mask,
     is_legal_jump,
 )
 
@@ -177,3 +178,47 @@ def test_build_skip_chunk_gathers_joint_rows(
     )
     assert chunk.shape == (horizon, constant_speed_traj.shape[1])
     np.testing.assert_allclose(chunk, constant_speed_traj[indices])
+
+
+# 用例: 夹爪阶跃会在 ±window 内打上 no-skip mask
+# 参数: 帧 10 处 gripper 从 0→1；window=2 → 保护区 [8,12]
+def test_gripper_no_skip_mask_dilates_events() -> None:
+    q = np.zeros((20, 2), dtype=np.float64)
+    q[10:, 1] = 1.0
+    mask = gripper_no_skip_mask(q, grip_dims=[1], delta=0.02, window_frames=2)
+    assert not mask[7]
+    assert bool(np.all(mask[8:13]))
+    assert not mask[13]
+
+
+# 用例: 宽松 v_lim 下，夹爪保护区不可被跨过；无保护时可一步跳过该带
+# 参数: 臂关节匀速；帧 8 夹爪闭合；window=2 → [6,10] 保护区
+def test_no_skip_mask_forces_dense_through_gripper_window() -> None:
+    t = 40
+    q = np.zeros((t, 2), dtype=np.float64)
+    q[:, 0] = np.arange(t, dtype=np.float64) * 0.01
+    q[8:, 1] = 1.0  # gripper close event at frame 8
+    horizon = 8
+    dt = 1.0 / horizon
+    # Very loose arm limit → without mask would jump far each step.
+    v_lim = np.asarray([100.0, np.inf], dtype=np.float64)
+    mask = gripper_no_skip_mask(q, grip_dims=[1], delta=0.02, window_frames=2)
+    assert bool(np.any(mask))
+
+    free = build_skip_chunk_indices(q, h0=0, horizon=horizon, v_lim=v_lim, dt=dt)
+    protected = build_skip_chunk_indices(
+        q, h0=0, horizon=horizon, v_lim=v_lim, dt=dt, no_skip_mask=mask
+    )
+
+    def skips_over_protect(indices: np.ndarray) -> bool:
+        prev = 0
+        for b in indices.tolist():
+            if int(b) > prev + 1 and bool(np.any(mask[prev + 1 : int(b)])):
+                return True
+            prev = int(b)
+        return False
+
+    assert skips_over_protect(free)
+    assert not skips_over_protect(protected)
+    # Protected path must actually enter the band (dense walk), not stop before it.
+    assert any(mask[int(i)] for i in protected.tolist())

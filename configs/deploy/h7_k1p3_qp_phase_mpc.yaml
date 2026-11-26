@@ -1,0 +1,54 @@
+# h7 · κ=1.3 phase + Acados MPC（同 QP；失败降级 Lead）
+# 需本机 acados：bash scripts/install_acados_h7.sh && source scripts/h7/env.sh
+#   fastervla-deploy run --config configs/deploy/h7_k1p3_qp_phase_mpc.yaml \
+#     --mode execute --duration-s 180 --tag M3_MPC
+
+meta:
+  name: h7_k1p3_qp_phase_mpc
+  robot_aid: G2A0205C800352
+  machine: h7
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.3
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: qp
+  contact_kappa: 1.1
+  contact_window_frames: 10
+  transport_kappa_max: 1.5
+  prefix_lock: true
+  lock_extra_frames: 2
+
+inference:
+  tracker: mpc
+  execution_prefix_frames: 4
+  execution_buffer_frames: 4
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+# MPC 超时/失败时降级用的 Lead（与 Lead2 对齐）
+lead_tracker:
+  tau_s: 0.09
+  gain: 0.35
+  max_lead_rad: 0.10
+  lead_smooth_tau_s: 0.040
+  hold_during_blend: true
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 192.168.112.212
+  discovery_uri: http://192.168.112.212:2379

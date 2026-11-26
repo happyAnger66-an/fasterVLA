@@ -38,10 +38,26 @@ _MEAS24_NAMES: tuple[str, ...] = (
 
 
 def _g2_scripts_dir() -> Path | None:
+    # Explicit override for sparse h7 trees (no monorepo g2_tools checkout).
+    import os
+
+    env = os.environ.get("FASTERVLA_G2_SCRIPTS") or os.environ.get("G2_TOOLS_SCRIPTS")
+    if env:
+        cand = Path(env)
+        if (cand / "urdf_fk.py").is_file():
+            return cand
     here = Path(__file__).resolve()
     # .../r-infra/robot/fasterVLA/src/fastervla/deploy/analysis/this.py
+    # Also matches /data/project_r/g2_tools/scripts when repo is /data/project_r/fastervla.
     for parent in here.parents:
         cand = parent / "g2_tools" / "scripts"
+        if (cand / "urdf_fk.py").is_file():
+            return cand
+    # h7 accel-deploy sibling (legacy copy)
+    for cand in (
+        Path("/data/project_r/g2_tools/scripts"),
+        Path("/data/project_r/agibotg2_accel_deploy/scripts"),
+    ):
         if (cand / "urdf_fk.py").is_file():
             return cand
     return None

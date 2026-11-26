@@ -13,6 +13,7 @@ import numpy as np
 from fastervla.training.data.limits import JointVelocityLimits
 from fastervla.training.data.limits import effective_v_max
 from fastervla.training.resample.velocity_skip import build_skip_chunk
+from fastervla.training.resample.velocity_skip import gripper_no_skip_mask
 
 
 def make_action_delta_timestamps(
@@ -43,6 +44,11 @@ class VelocitySkipConfig:
     v_lim: np.ndarray
     action_key: str = "actions"
     dt: float | None = None
+    fps: float = 30.0
+    gripper_no_skip_dims: tuple[int, ...] = (22, 23)
+    gripper_no_skip_delta: float = 0.02
+    gripper_no_skip_window_s: float = 1.5
+    gripper_no_skip_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.horizon <= 0:
@@ -51,7 +57,17 @@ class VelocitySkipConfig:
             raise ValueError(
                 f"window ({self.window}) must be >= horizon ({self.horizon})"
             )
+        if self.fps <= 0.0:
+            raise ValueError(f"fps must be positive, got {self.fps}")
+        if self.gripper_no_skip_window_s < 0.0:
+            raise ValueError(
+                f"gripper_no_skip_window_s must be >= 0, got {self.gripper_no_skip_window_s}"
+            )
         self.v_lim = np.asarray(self.v_lim, dtype=np.float64).reshape(-1)
+
+    @property
+    def gripper_no_skip_window_frames(self) -> int:
+        return int(round(float(self.gripper_no_skip_window_s) * float(self.fps)))
 
     @classmethod
     def from_limits(
@@ -63,7 +79,9 @@ class VelocitySkipConfig:
         skip_frames: bool,
         action_key: str = "actions",
         dt: float | None = None,
+        fps: float = 30.0,
     ) -> VelocitySkipConfig:
+        grip = limits.gripper_no_skip
         return cls(
             skip_frames=skip_frames,
             horizon=horizon,
@@ -71,6 +89,11 @@ class VelocitySkipConfig:
             v_lim=effective_v_max(limits),
             action_key=action_key,
             dt=dt,
+            fps=fps,
+            gripper_no_skip_dims=tuple(int(d) for d in grip.dims),
+            gripper_no_skip_delta=float(grip.delta),
+            gripper_no_skip_window_s=float(grip.window_s),
+            gripper_no_skip_enabled=bool(grip.enabled),
         )
 
 
@@ -95,6 +118,14 @@ class VelocitySkipActions:
 
         window = actions[: self._cfg.window]
         if self._cfg.skip_frames:
+            no_skip = None
+            if self._cfg.gripper_no_skip_enabled:
+                no_skip = gripper_no_skip_mask(
+                    window,
+                    grip_dims=self._cfg.gripper_no_skip_dims,
+                    delta=self._cfg.gripper_no_skip_delta,
+                    window_frames=self._cfg.gripper_no_skip_window_frames,
+                )
             chunk = build_skip_chunk(
                 window,
                 h0=0,
@@ -102,6 +133,7 @@ class VelocitySkipActions:
                 v_lim=self._cfg.v_lim,
                 dt=self._cfg.dt,
                 skip_frames=True,
+                no_skip_mask=no_skip,
             )
         else:
             chunk = window[: self._cfg.horizon]

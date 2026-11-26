@@ -336,6 +336,21 @@ def test_make_run_dir(tmp_path: Path) -> None:
     assert d.parent == tmp_path
 
 
+def test_make_run_dir_with_tag(tmp_path: Path) -> None:
+    from fastervla.deploy.client.recorder import sanitize_run_label
+
+    d = make_run_dir(tmp_path, tag="R2 lead2")
+    assert d.name.endswith("-R2_lead2")
+    assert sanitize_run_label("R2 lead2") == "R2_lead2"
+
+
+def test_make_run_dir_with_run_id(tmp_path: Path) -> None:
+    d = make_run_dir(tmp_path, run_id="20261125-R0-baseline")
+    assert d.name == "robot-live-20261125-R0-baseline"
+    with pytest.raises(FileExistsError):
+        make_run_dir(tmp_path, run_id="20261125-R0-baseline")
+
+
 # 用例: PeriodicFlusher 周期性 flush，期间仍可 record；close 后数据齐全
 def test_periodic_flusher(tmp_path: Path) -> None:
     run = make_run_dir(tmp_path)
@@ -467,3 +482,31 @@ def test_inference_loop_writes_robot_live_traces(tmp_path: Path) -> None:
         cmd = ctl["command21"]
         # At least tracker_status recorded as lead (1) on some step ticks.
         assert np.any(ctl["tracker_status"] == 1) or np.allclose(ref, cmd)
+
+
+# 用例: aux 列（实测速度/时间戳/耗时/饱和）写盘；缺省为 NaN；追加到旧 trace 时补 NaN
+def test_recorder_aux_tick_columns(tmp_path: Path) -> None:
+    out_dir = tmp_path / "robot-live-aux"
+    rec = TraceRecorder(out_dir, capacity_ticks=16, horizon=30)
+    _tick(rec, 0.0)
+    rec.flush()
+    vel = np.arange(24, dtype=np.float64)
+    _tick(
+        rec,
+        1.0,
+        aux={
+            "measured_velocity24": vel,
+            "state_stamp_ms": 123.0,
+            "send_ms": 0.7,
+            "sat_excess_rad": 0.01,
+        },
+    )
+    rec.close()
+    ctl = np.load(out_dir / "control_trace.npz", allow_pickle=True)
+    assert ctl["measured_velocity24"].shape == (2, 24)
+    assert np.all(np.isnan(ctl["measured_velocity24"][0]))
+    np.testing.assert_allclose(ctl["measured_velocity24"][1], vel)
+    np.testing.assert_allclose(ctl["arm_velocity14"][1], vel[8:22])
+    assert ctl["state_stamp_ms"][1] == 123.0
+    assert np.isnan(ctl["state_read_ms"][1])
+    assert ctl["sat_excess_rad"].shape == (2,)

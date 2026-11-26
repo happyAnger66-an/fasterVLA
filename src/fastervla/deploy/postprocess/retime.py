@@ -76,6 +76,25 @@ class TimeAxisQPConfig:
     r2r_window: int = 30
     solver: str = "active_set"
     calibrate_iters: int = 8
+    # Phase-aware caps (rate = policy_fps · kappa_x). Frames within
+    # ``contact_window_frames`` of a gripper command change are capped at
+    # ``contact_kappa``; every frame is capped at ``transport_kappa_max``.
+    # Calibration still targets mean rate policy_fps · kappa, so time saved
+    # near contact is spent elsewhere — keep transport_kappa_max tight when
+    # raising κ, or peaks dump into carry/place.
+    contact_kappa: float | None = None
+    contact_window_frames: int = 10
+    # If True, dilate window by κ so wall-clock soft duration ≈ constant
+    # (frame window alone shrinks in real time as κ rises).
+    contact_window_scale_kappa: bool = False
+    contact_grip_dims: tuple[int, ...] = (22, 23)
+    contact_grip_delta: float = 0.02
+    transport_kappa_max: float | None = None
+    # Dwell compress: frames far from contact with tiny arm steps are pinned
+    # up to ``dwell_kappa_max`` (may exceed transport_kappa_max) to shrink
+    # seek-phase pauses without speeding grasp/place windows.
+    dwell_kappa_max: float | None = None
+    dwell_step_rad: float = 0.005
 
     def __post_init__(self) -> None:
         if not (self.kappa_min <= self.kappa <= self.kappa_max):
@@ -95,6 +114,53 @@ class TimeAxisQPConfig:
             raise ValueError(
                 "1/(policy_fps·κ) must lie in [dt_min_s, dt_max_s]"
             )
+        if self.contact_kappa is not None and self.contact_kappa <= 0:
+            raise ValueError("contact_kappa must be > 0")
+        if self.transport_kappa_max is not None and self.transport_kappa_max < self.kappa:
+            raise ValueError("transport_kappa_max must be >= kappa")
+        if self.contact_window_frames < 0:
+            raise ValueError("contact_window_frames must be >= 0")
+        if self.dwell_kappa_max is not None:
+            if self.dwell_kappa_max < self.kappa:
+                raise ValueError("dwell_kappa_max must be >= kappa")
+            max_by_dt = 1.0 / (float(self.policy_fps) * float(self.dt_min_s))
+            if self.dwell_kappa_max > max_by_dt + 1e-9:
+                raise ValueError(
+                    f"dwell_kappa_max={self.dwell_kappa_max} exceeds 1/(fps·dt_min)={max_by_dt:.3f}"
+                )
+        if self.dwell_step_rad < 0:
+            raise ValueError("dwell_step_rad must be >= 0")
+
+
+def contact_mask(
+    actions: np.ndarray,
+    *,
+    grip_dims: Sequence[int],
+    delta: float,
+    window: int,
+) -> np.ndarray:
+    """Frames within ``window`` of a per-frame gripper command change > ``delta``."""
+    actions = np.asarray(actions, dtype=np.float64)
+    h = int(actions.shape[0])
+    dims = [d for d in grip_dims if d < actions.shape[1]]
+    if not dims or h < 2:
+        return np.zeros(h, dtype=bool)
+    g = actions[:, dims]
+    step = np.max(np.abs(np.diff(g, axis=0)), axis=1)
+    events = np.flatnonzero(step > float(delta)) + 1
+    mask = np.zeros(h, dtype=bool)
+    w = int(window)
+    for e in events:
+        mask[max(0, e - w) : min(h, e + w + 1)] = True
+    return mask
+
+
+def dwell_mask(dp: np.ndarray, step_rad: float) -> np.ndarray:
+    """Frames whose arm step is nearly zero (``max|Δq| < step_rad``)."""
+    dp = np.asarray(dp, dtype=np.float64)
+    if dp.ndim != 2 or dp.shape[0] == 0:
+        return np.zeros(int(getattr(dp, "shape", [0])[0]), dtype=bool)
+    return np.max(np.abs(dp), axis=1) < float(step_rad)
 
 
 def rate_hessian(
@@ -284,9 +350,11 @@ class TimeAxisQP:
         lower: np.ndarray,
         upper: np.ndarray,
         window: np.ndarray,
+        calib_upper: np.ndarray | None = None,
     ) -> tuple[np.ndarray, str, float]:
         target = float(s_ref)
-        calibrate = window[upper[window] >= s_ref * (1.0 - 1e-9)]
+        cu = upper if calib_upper is None else calib_upper
+        calibrate = window[cu[window] >= s_ref * (1.0 - 1e-9)]
         rates = np.clip(np.full(len(lower), s_ref), lower, upper)
         solver = "active_set"
         for _ in range(int(self.config.calibrate_iters)):
@@ -386,6 +454,39 @@ class TimeAxisQP:
             per_joint = np.where(np.abs(dp) > 1e-9, v_max / np.abs(dp), np.inf)
         velocity_cap = per_joint.min(axis=1)
         upper = np.minimum(upper, np.maximum(velocity_cap, s_min))
+        calib_upper = upper.copy()
+
+        n_contact = 0
+        n_dwell = 0
+        near = np.zeros(h, dtype=bool)
+        contact_window_used = int(cfg.contact_window_frames)
+        if cfg.contact_kappa is not None:
+            win = int(cfg.contact_window_frames)
+            if cfg.contact_window_scale_kappa:
+                win = max(win, int(np.ceil(win * float(cfg.kappa))))
+            contact_window_used = win
+            near = contact_mask(
+                actions,
+                grip_dims=cfg.contact_grip_dims,
+                delta=cfg.contact_grip_delta,
+                window=win,
+            )
+            n_contact = int(near.sum())
+        if cfg.transport_kappa_max is not None:
+            upper = np.minimum(upper, policy_fps * float(cfg.transport_kappa_max))
+        if cfg.dwell_kappa_max is not None:
+            dwell = dwell_mask(dp, cfg.dwell_step_rad) & ~near
+            n_dwell = int(dwell.sum())
+            dwell_cap = max(policy_fps * float(cfg.dwell_kappa_max), s_min)
+            # May exceed transport_kappa_max; still respect joint v_max (calib_upper).
+            upper[dwell] = np.minimum(calib_upper[dwell], dwell_cap)
+            # Pin dwell frames to their upper rate so pauses actually shrink.
+            pin = dwell & (upper > lower + 1e-9)
+            lower[pin] = upper[pin]
+        if cfg.contact_kappa is not None:
+            cap = max(policy_fps * float(cfg.contact_kappa), s_min)
+            upper[near] = np.minimum(upper[near], cap)
+        upper = np.maximum(upper, lower)
 
         prefix = int(cfg.prefix_frames)
         buffer = int(cfg.buffer_frames)
@@ -402,10 +503,14 @@ class TimeAxisQP:
             upper[prefix : prefix + buffer] = np.minimum(
                 upper[prefix : prefix + buffer], budget_cap
             )
+            calib_upper[prefix : prefix + buffer] = np.minimum(
+                calib_upper[prefix : prefix + buffer], budget_cap
+            )
 
-        locked = 0 if lock_durations is None else len(lock_durations)
+        locked = 0 if lock_durations is None else min(len(lock_durations), h)
         if locked:
-            rates_lock = 1.0 / np.asarray(lock_durations, dtype=np.float64)
+            lock_durations = np.asarray(lock_durations, dtype=np.float64)[:locked]
+            rates_lock = 1.0 / lock_durations
             lower[:locked] = rates_lock
             upper[:locked] = rates_lock
 
@@ -421,7 +526,7 @@ class TimeAxisQP:
 
         hessian, wt = rate_hessian(dp, s_ref, cfg.lambda_time, cfg.lambda_acc)
         rates, solver, target = self._calibrated_rates(
-            hessian, wt, s_ref, lower, upper, free
+            hessian, wt, s_ref, lower, upper, free, calib_upper=calib_upper
         )
         durations = 1.0 / rates
         if locked:
@@ -448,6 +553,9 @@ class TimeAxisQP:
                 "executed_speed": float(executed_speed),
                 "time_target_speed": float(target / policy_fps),
                 "velocity_limited_frames": velocity_hits,
+                "contact_frames": n_contact,
+                "contact_window_frames_used": int(contact_window_used),
+                "dwell_frames": n_dwell,
                 "kappa": float(cfg.kappa),
                 "s_ref": float(cfg.kappa),
             }

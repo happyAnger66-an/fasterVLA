@@ -142,3 +142,20 @@ def test_velocity_skip_config_from_limits_dense(tmp_limits_yaml: Path) -> None:
     )
     assert cfg.skip_frames is False
     assert cfg.window == cfg.horizon
+
+
+# 用例: from_limits 带上 fps 后，1.5s 窗口换成帧数
+# 参数: tmp_limits_yaml；fps=30 → window_frames=45
+def test_velocity_skip_config_gripper_window_frames(tmp_limits_yaml: Path) -> None:
+    limits = load_joint_velocity_limits(tmp_limits_yaml)
+    limits.gripper_no_skip.window_s = 1.5
+    cfg = VelocitySkipConfig.from_limits(
+        limits,
+        horizon=8,
+        window=32,
+        skip_frames=True,
+        fps=30.0,
+    )
+    assert cfg.gripper_no_skip_window_s == 1.5
+    assert cfg.gripper_no_skip_window_frames == 45
+    assert cfg.gripper_no_skip_enabled is True

@@ -1,8 +1,8 @@
 # Deploy 配置说明（加速比 κ 与约束）
 
-> 状态：2026-11-23。  
-> **真机当前入口是 CLI**（`fastervla-deploy shadow|run|analyze`），参数直接填进 dataclass。  
-> 下文 YAML 是与代码字段对齐的**推荐配置格式**（示例见 [`configs/deploy/`](../configs/deploy/)）；完整 YAML 加载进 `run` 尚未接线，改加速/约束可先按「CLI 对照表」或改 dataclass 默认值。
+> 状态：2026-11-24。  
+> **真机入口**：`fastervla-deploy run --config configs/deploy/<recipe>.yaml`（CLI 显式 flag 覆盖配方）。  
+> 下文是与代码对齐的配方格式；**仅 CLI 已接线字段**可写入 YAML（见 `deploy/recipe.py`）。QP 细参等未接线键会被拒绝。
 
 相关：[`deploy-g2-plan.md`](deploy-g2-plan.md) §4.3、[`retime-qp-flow.html`](retime-qp-flow.html)（TimeAxisQP 公式）。
 
@@ -25,7 +25,17 @@
    - 例：`fps=30, κ=1.2` → `dt_ref≈27.8ms`，需 `dt_min≤27.8≤dt_max`  
    - `κ=2, dt_min=20ms` → `dt_ref≈16.7ms < 20ms` → **拒绝**
 
-**CLI 速查（今日可用）**
+**配方速查（推荐）**
+
+```bash
+# h7 正常倍速 soft（4+4 + ZP + pchip）
+fastervla-deploy run --config configs/deploy/h7_soft_1x.yaml
+
+# h7 1.8× soft；CLI 覆盖 mode / duration
+fastervla-deploy run --config configs/deploy/h7_soft_1p8.yaml --mode execute --duration-s 30
+```
+
+**CLI 速查（无配方时）**
 
 ```bash
 # 1.0× Uniform（默认）
@@ -300,13 +310,14 @@ retimer:
 
 | 项 | 状态 |
 |---|---|
-| `fastervla-deploy run --config xxx.yaml` | **未实现**；今日用 CLI |
+| `fastervla-deploy run --config xxx.yaml` | **已接线**（`deploy/recipe.py` → argparse defaults；仅 CLI 字段） |
+| TimeAxisQP 细参（`dt_*` / `v_max_*` / `lambda_*`）进 YAML | 未接线；写进配方会 KeyError |
+| `lead_tracker` 段 | **已接线**（→ CLI `--lead-*` → `InferenceLoopConfig` → `LeadTrackerConfig`） |
+| `retimer.dwell_kappa_max` | **已接线**（远离接触的近静止帧钉到更高倍速；`fastervla-deploy report` 汇总球周期） |
 | `safety` 在线按 r2r P99 自动降 `kappa` | 未实现（方案有，`safety.py` 缺） |
 | Contact（F5） | 未实现 |
 | acados 系统库 | `pip install 'fastervla[mpc]'` 只装 Python 包；还需本机编译/安装 [acados](https://docs.acados.org) 并设置 `ACADOS_SOURCE_DIR`。未装齐时 `AcadosMpcTracker` 自动降级 Lead |
 | 训练配方 `configs/training/*.yaml` | 另一套，见训练 README / recipe |
-
-有 YAML 加载需求时：用 `core.config.load_dataclass_yaml` 分段加载，或新增顶层 `DeployConfig` dataclass 一次载入。
 
 ---
 

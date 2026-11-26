@@ -13,7 +13,12 @@ dependencies = [
 dev = ["pytest>=8.0"]
 # acados_template needs a system acados build (ACADOS_SOURCE_DIR / libs); casadi is pip-installable.
 mpc = ["casadi>=3.6", "acados_template>=0.4"]
-deploy-client = ["websockets>=12", "scipy>=1.11"]
+deploy-client = [
+  "websockets>=12",
+  "scipy>=1.11",
+  "typing_extensions>=4.0",
+  "msgpack>=1.0",
+]
 
 [project.scripts]
 fastervla-train = "fastervla.training.cli:main"

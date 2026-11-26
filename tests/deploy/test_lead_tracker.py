@@ -104,6 +104,46 @@ def test_lead_tracker_clips_max_lead() -> None:
     assert np.max(np.abs(out[5:19] - ref[5:19])) == pytest.approx(0.06, abs=1e-9)
 
 
+# 用例: 右爪闭合时改用 closed_grip_max_lead_rad 截断（抑搬运摆动）
+# 参数: 无
+def test_lead_tracker_closed_grip_tightens_max_lead() -> None:
+    tr = LeadTracker(
+        LeadTrackerConfig(
+            tau_s=0.1,
+            gain=1.0,
+            max_lead_rad=0.10,
+            lead_smooth_tau_s=0.0,
+            closed_grip_max_lead_rad=0.05,
+            grip_closed_threshold=-0.39,
+        )
+    )
+    ref_open = _cmd(0.0)
+    ref_open[20] = -0.70  # open
+    out_open = tr.step(
+        ref_open,
+        ref_ahead=np.full(14, 1.0),
+        ref_vel=np.full(14, 10.0),
+        now=0.0,
+        blending=False,
+    )
+    assert np.max(np.abs(out_open[5:19] - ref_open[5:19])) == pytest.approx(
+        0.10, abs=1e-9
+    )
+
+    ref_closed = _cmd(0.0)
+    ref_closed[20] = -0.10  # closed
+    out_closed = tr.step(
+        ref_closed,
+        ref_ahead=np.full(14, 1.0),
+        ref_vel=np.full(14, 10.0),
+        now=0.01,
+        blending=False,
+    )
+    assert np.max(np.abs(out_closed[5:19] - ref_closed[5:19])) == pytest.approx(
+        0.05, abs=1e-9
+    )
+
+
 # 用例: hold_during_blend=True 时 blending 阶段目标 lead→0（经 EMA 收敛）
 # 参数: 无
 def test_lead_tracker_hold_during_blend_drives_lead_to_zero() -> None:

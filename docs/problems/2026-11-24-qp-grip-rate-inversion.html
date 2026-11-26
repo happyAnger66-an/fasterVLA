@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>旧 QP 夹放不稳 · 细动作被加速</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #10131a; --bg1: #171c26; --bg2: #1f2633;
+      --ink: #e8ecf4; --muted: #8b93a7; --line: #2c3448;
+      --a: #5b9fd4; --b: #3db89a; --path: #c9a86c;
+      --tick: #f0c14a; --warn: #d45d5d; --lock: #b07cc9;
+      --fine: #e0893c; --carry: #5b9fd4;
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --serif: "IBM Plex Serif", Georgia, serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--font); color: var(--ink);
+      background:
+        radial-gradient(1000px 520px at 0% 0%, #1a2838 0%, transparent 55%),
+        radial-gradient(800px 480px at 100% 8%, #1a3028 0%, transparent 50%),
+        var(--bg0);
+      line-height: 1.55; font-size: 16px;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 44px 20px 96px; }
+    .crumb { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 0 14px; }
+    .crumb a { color: var(--a); text-decoration: none; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--b); margin: 0 0 10px;
+    }
+    h1 {
+      font-family: var(--serif); font-weight: 600;
+      font-size: clamp(1.55rem, 3.4vw, 2.15rem);
+      margin: 0 0 12px; letter-spacing: -0.02em; line-height: 1.2;
+    }
+    h2 {
+      font-family: var(--serif); font-size: 1.28rem;
+      margin: 40px 0 12px; padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 1.02rem; margin: 20px 0 8px; }
+    .lede { color: var(--muted); max-width: 46em; margin: 0 0 18px; }
+    p, li { color: var(--muted); }
+    p { margin: 0 0 12px; }
+    ul, ol { margin: 0 0 14px; padding-left: 1.25em; }
+    li { margin: 0 0 6px; }
+    strong { color: var(--ink); font-weight: 600; }
+    code {
+      font-family: var(--mono); font-size: 0.88em; color: var(--tick);
+      background: rgba(240, 193, 74, 0.08); padding: 1px 5px; border-radius: 4px;
+    }
+    a { color: var(--a); }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 22px;
+    }
+    .pill {
+      font-family: var(--mono); font-size: 11px;
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
+      color: var(--muted);
+    }
+    .pill.ok { color: var(--b); border-color: #2f6b58; }
+    .pill.warn { color: var(--warn); border-color: #6b3535; }
+    .card {
+      background: color-mix(in srgb, var(--bg1) 92%, transparent);
+      border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px; margin: 12px 0 18px;
+    }
+    .scroll { overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin: 10px 0 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--bg1); }
+    th, td { border: 1px solid var(--line); padding: 7px 8px; text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child,
+    th:nth-child(2), td:nth-child(2) { text-align: left; }
+    th { background: var(--bg2); color: var(--ink); font-weight: 500; }
+    tr.hi td { background: rgba(61, 184, 154, 0.08); }
+    .anim {
+      border: 1px solid var(--line); border-radius: 12px;
+      background: var(--bg1); padding: 14px 14px 12px; margin: 12px 0 18px;
+    }
+    .anim-head {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      margin: 0 0 10px;
+    }
+    .anim-head h3 { margin: 0; flex: 1 1 100%; font-size: 0.98rem; }
+    .anim-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .anim-step {
+      font-family: var(--mono); font-size: 12px; color: var(--muted);
+      margin-left: 4px; min-width: 3.5em;
+    }
+    .anim-caption {
+      font-size: 13px; color: var(--muted); min-height: 1.4em; margin: 8px 0 0;
+      font-family: var(--mono);
+    }
+    button {
+      font-family: var(--font); font-size: 13px; font-weight: 500;
+      color: var(--ink); background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 8px; padding: 7px 12px; cursor: pointer;
+    }
+    button:hover { border-color: var(--b); }
+    button.primary { background: #234438; border-color: #3d6b58; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    svg.stage { width: 100%; height: auto; display: block; }
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 10px 16px;
+      font-size: 12px; color: var(--muted); margin: 0 0 8px;
+    }
+    .legend i {
+      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      margin-right: 5px; vertical-align: -1px;
+    }
+    .footer {
+      margin-top: 36px; padding-top: 14px; border-top: 1px solid var(--line);
+      font-size: 0.88rem; color: var(--muted);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .anim button.primary { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="crumb"><a href="./index.html">问题档案</a> / 2026-11-24</p>
+    <p class="eyebrow">TimeAxisQP · 已解决</p>
+    <h1>旧 QP 夹放不稳：细动作被加速、搬运被减速</h1>
+    <p class="lede">
+      κ↑ 后用裸 <code>TimeAxisQP</code>，体感毛糙、夹球/放筒不准；uniform 同 κ 反而更稳。
+      根因是 QP 把时间分配<strong>反了</strong>，再叠加合块时时间轴重解导致速率跳变。
+      修法：夹爪窗硬限速 + 合块锁定旧计划时长。
+    </p>
+    <div class="meta">
+      <span class="pill ok">状态 · 已解决</span>
+      <span class="pill">机器 · agi@h7</span>
+      <span class="pill">任务 · badminton651 放筒</span>
+      <span class="pill">配方 · h7_k1p3_qp_phase_4x4</span>
+      <span class="pill">冠军 run · 221341-7bbe7d</span>
+    </div>
+
+    <!-- 1 -->
+    <h2>1. 问题现象</h2>
+    <div class="card">
+      <ul>
+        <li><strong>κ=1.1 裸 QP·8+8</strong>（<code>087e27</code>）：体感尚可，3 球 2+1 次；但相对 uniform，交接跳更高。</li>
+        <li><strong>κ=1.2 裸 QP·8+8</strong>（<code>d84c6f</code>）：毛糙；1 球成功、1 球入桶失败后<strong>掉桶</strong>。交接跳 687、hf3↑、rem↓。</li>
+        <li><strong>同 κ uniform 4+4</strong>（<code>2018b7</code>）：约 8 球较准较快，偶发放偏——说明「加速本身」还能用，问题在 <strong>QP 怎么分时间</strong>。</li>
+        <li>主观感受：夹/放附近「冲」，空中搬运反而没明显提速；合块多（4+4）时更差。</li>
+      </ul>
+    </div>
+
+    <!-- 2 -->
+    <h2>2. 分析过程与原因</h2>
+    <h3>2.1 线上 step_dt 诊断</h3>
+    <p>
+      脚本 <code>scripts/analyze_qp_timeaxis.py</code>：对每个 accepted chunk 的执行窗，看
+      <code>rate = 1/step_dt</code> 与关节步长 <code>|dp|</code>、夹爪变化邻域的关系。
+      单位：×示范 30Hz。
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>run</th><th>配置</th><th>小步 p50</th><th>夹爪邻域</th><th>大步 p50</th><th>交接速率跳 p95</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>087e27</code></td><td>κ1.1 裸 QP 8+8</td>
+            <td><strong>1.38×</strong></td><td><strong>1.36×</strong></td><td>0.90×</td><td>~0.37</td>
+          </tr>
+          <tr>
+            <td><code>d84c6f</code></td><td>κ1.2 裸 QP 8+8</td>
+            <td><strong>1.50×</strong></td><td><strong>1.45×</strong></td><td>0.98×</td><td>~0.40</td>
+          </tr>
+          <tr>
+            <td>uniform 对照</td><td>κ1.2 u·4+4</td>
+            <td>1.20×</td><td>1.20×</td><td>1.20×</td><td>0</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>corr(log|dp|, log rate) ≈ −0.55</code>：步越小，速率越高——和「该慢的地方慢」相反。
+    </p>
+
+    <h3>2.2 原因动画：加速度项在拉平关节速度</h3>
+    <p>
+      路点固定，相邻位移 <code>dp</code> 固定。QP 只改速率 <code>s=1/dt</code>。
+      加速度项最小化 <code>‖sᵢ·dpᵢ − sᵢ₊₁·dpᵢ₊₁‖²</code>，等价于让相邻段<strong>关节速度尽量相等</strong>。
+      平均还要对齐 κ，又无 v_max → 只能「小步加速、大步减速」。
+    </p>
+
+    <div class="anim" id="anim-cause">
+      <div class="anim-head">
+        <h3>两段例子：细动作 dp=0.01 · 搬运 dp=0.10</h3>
+        <span class="anim-controls">
+          <button type="button" class="primary" data-act="play">播放</button>
+          <button type="button" data-act="pause">暂停</button>
+          <button type="button" data-act="prev">上一步</button>
+          <button type="button" data-act="next">下一步</button>
+          <button type="button" data-act="reset">重置</button>
+          <span class="anim-step" data-step></span>
+        </span>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--fine)"></i>细动作（夹放）</span>
+        <span><i style="background:var(--carry)"></i>搬运</span>
+        <span><i style="background:var(--warn)"></i>速率条越高越快</span>
+      </div>
+      <svg class="stage" viewBox="0 0 720 240" role="img" aria-label="旧 QP 把细动作加速、搬运减速">
+        <text x="20" y="22" fill="#8b93a7" font-family="IBM Plex Mono" font-size="12">uniform κ=1.2：两段同速</text>
+        <rect class="c-uni-fine" x="40" y="40" width="40" height="48" rx="4" fill="#e0893c"/>
+        <rect class="c-uni-carry" x="200" y="40" width="40" height="48" rx="4" fill="#5b9fd4"/>
+        <text x="40" y="108" fill="#8b93a7" font-family="IBM Plex Mono" font-size="11">s=36 · v=0.36</text>
+        <text x="200" y="108" fill="#8b93a7" font-family="IBM Plex Mono" font-size="11">s=36 · v=3.6</text>
+
+        <text x="20" y="140" fill="#8b93a7" font-family="IBM Plex Mono" font-size="12">旧 QP 为压平 v：细动作 s↑ · 搬运 s↓</text>
+        <rect class="c-qp-fine" x="40" y="158" width="40" height="48" rx="4" fill="#e0893c"/>
+        <rect class="c-qp-carry" x="200" y="158" width="40" height="48" rx="4" fill="#5b9fd4"/>
+        <text class="c-qp-fine-lab" x="40" y="228" fill="#f0c14a" font-family="IBM Plex Mono" font-size="11">s=36 · v=0.36</text>
+        <text class="c-qp-carry-lab" x="200" y="228" fill="#f0c14a" font-family="IBM Plex Mono" font-size="11">s=36 · v=3.6</text>
+
+        <path d="M360 70 H400" stroke="#2c3448" stroke-width="2"/>
+        <polygon points="400,66 412,70 400,74" fill="#2c3448"/>
+        <text x="430" y="74" fill="#8b93a7" font-family="IBM Plex Sans" font-size="13">v 差大 → 加速度项大</text>
+        <text x="430" y="180" fill="#d45d5d" font-family="IBM Plex Sans" font-size="13">压差：细动作冲、搬运拖</text>
+      </svg>
+      <p class="anim-caption" data-cap="cause">点「播放」看 QP 如何把速率从均匀拧成反分配。</p>
+    </div>
+
+    <h3>2.3 第二原因：合块时时间轴整段重解</h3>
+    <p>
+      <code>InferenceLoop._retime_chunk</code> 原先 <code>lock_durations=None</code>（注释写着 F3 follow-up）。
+      每个新 chunk 对同一批未来路点重新分配时长 → 交接处新旧速率差 p50≈10%、p95≈40%。
+      4+4 合块更勤，所以裸 QP·4+4 最差（交接跳 921）。
+    </p>
+
+    <div class="anim" id="anim-handoff">
+      <div class="anim-head">
+        <h3>合块瞬间：无锁定 vs 锁定旧时长</h3>
+        <span class="anim-controls">
+          <button type="button" class="primary" data-act="play">播放</button>
+          <button type="button" data-act="pause">暂停</button>
+          <button type="button" data-act="prev">上一步</button>
+          <button type="button" data-act="next">下一步</button>
+          <button type="button" data-act="reset">重置</button>
+          <span class="anim-step" data-step></span>
+        </span>
+      </div>
+      <svg class="stage" viewBox="0 0 720 200" role="img" aria-label="合块速率跳变与锁定">
+        <text x="24" y="28" fill="#8b93a7" font-family="IBM Plex Mono" font-size="12">旧计划速率</text>
+        <rect x="24" y="40" width="280" height="28" rx="4" fill="#1f2633" stroke="#2c3448"/>
+        <rect class="h-old" x="24" y="40" width="70" height="28" rx="4" fill="#5b9fd4"/>
+        <rect class="h-old2" x="94" y="40" width="55" height="28" rx="4" fill="#3a7eb0"/>
+        <rect class="h-old3" x="149" y="40" width="90" height="28" rx="4" fill="#7eb8ff"/>
+        <line class="h-cut" x1="160" y1="32" x2="160" y2="120" stroke="#f0c14a" stroke-width="2" stroke-dasharray="4 3"/>
+        <text x="166" y="30" fill="#f0c14a" font-family="IBM Plex Mono" font-size="11">合块点</text>
+
+        <text x="24" y="130" fill="#8b93a7" font-family="IBM Plex Mono" font-size="12">新计划（无锁）</text>
+        <rect x="24" y="142" width="280" height="28" rx="4" fill="#1f2633" stroke="#2c3448"/>
+        <rect class="h-new" x="24" y="142" width="40" height="28" rx="4" fill="#d45d5d"/>
+        <rect class="h-new2" x="64" y="142" width="100" height="28" rx="4" fill="#b04a4a"/>
+        <rect class="h-new3" x="164" y="142" width="70" height="28" rx="4" fill="#e0893c"/>
+
+        <text x="360" y="56" fill="#8b93a7" font-family="IBM Plex Mono" font-size="12">有锁：前 d̂+2 帧沿用旧 dt</text>
+        <rect x="360" y="70" width="280" height="28" rx="4" fill="#1f2633" stroke="#2c3448"/>
+        <rect class="h-lock" x="360" y="70" width="70" height="28" rx="4" fill="#b07cc9"/>
+        <rect class="h-lock2" x="430" y="70" width="55" height="28" rx="4" fill="#9a6bb5"/>
+        <rect class="h-lock3" x="485" y="70" width="90" height="28" rx="4" fill="#3db89a"/>
+        <text class="h-note" x="360" y="120" fill="#3db89a" font-family="IBM Plex Sans" font-size="13">接缝连续，后面帧仍可 QP 重分配</text>
+      </svg>
+      <p class="anim-caption" data-cap="handoff">点「播放」对比无锁（左下跳变）与锁定前缀（右上连续）。</p>
+    </div>
+
+    <!-- 3 -->
+    <h2>3. 解决方法</h2>
+    <div class="card">
+      <ol>
+        <li>
+          <strong>分段硬上限（进 QP 的 <code>upper[]</code>）</strong>：
+          先判定接触窗，再压速率上界——不是改目标函数。
+        </li>
+        <li>
+          <strong>合块时长锁定</strong>：
+          <code>qp_prefix_lock</code> 时，旧计划 <code>step_dt[anchor:anchor+d̂+extra]</code>
+          → <code>lock_durations</code>，前缀 <code>lower=upper=1/dt</code>。
+        </li>
+        <li>
+          <strong>配方</strong>：
+          <code>h7_k1p3_qp_phase_4x4.yaml</code>
+          （<code>contact_kappa: 1.1</code> · <code>contact_window_frames: 10</code> ·
+          <code>transport_kappa_max: 1.5</code> · <code>prefix_lock: true</code>）。
+        </li>
+      </ol>
+    </div>
+
+    <h3>3.1 对照代码：接触限制怎么加进 QP</h3>
+    <p>
+      文件 <code>src/fastervla/deploy/postprocess/retime.py</code>。
+      决策变量仍是每帧速率 <code>s=1/dt</code>；限制全部落在盒约束
+      <code>lower[i] ≤ s[i] ≤ upper[i]</code>。
+    </p>
+
+    <div class="card">
+      <p><strong>① 配置（配方 → CLI → <code>TimeAxisQPConfig</code>）</strong></p>
+      <pre style="margin:8px 0 12px;padding:12px;background:#12161f;border:1px solid var(--line);border-radius:8px;overflow:auto;font-family:var(--mono);font-size:12px;color:var(--tick);line-height:1.45">retimer:
+  type: qp
+  contact_kappa: 1.1          # 接触窗内 s ≤ 30×1.1 = 33
+  contact_window_frames: 10   # |Δgrip| 事件前后各扩 10 帧
+  transport_kappa_max: 1.5    # 全帧 s ≤ 30×1.5 = 45
+  prefix_lock: true</pre>
+      <p style="margin:0">
+        代码默认还约定：<code>contact_grip_dims=(22,23)</code>、
+        <code>contact_grip_delta=0.02</code>（即图上的 <code>|Δgrip|&gt;0.02</code>）。
+        全局宽盒仍在：<code>dt∈[dt_min_s, dt_max_s]=[0.015,0.08]</code>
+        → <code>s∈[12.5, 66.7]</code>。接触/搬运上限是在这之上再 <code>min</code>。
+      </p>
+    </div>
+
+    <div class="card">
+      <p><strong>② 判定接触窗：<code>contact_mask()</code></strong></p>
+      <pre style="margin:8px 0 12px;padding:12px;background:#12161f;border:1px solid var(--line);border-radius:8px;overflow:auto;font-family:var(--mono);font-size:12px;color:var(--tick);line-height:1.45">g = actions[:, grip_dims]           # 默认维 22/23，夹爪<strong>命令</strong>不是实测
+step = max_|Δg| across dims         # 相邻帧差
+events = where(step > delta) + 1    # delta=0.02
+mask[e-window : e+window+1] = True  # window=10 → 图上「±10」</pre>
+      <p style="margin:0">
+        输出是长度为 H 的 bool 掩码。<strong>这一步只回答「哪些帧算接触」</strong>，
+        还没有限速；图上 <code>|Δgrip|&gt;0.02 ±10</code> 指的就是它。
+      </p>
+    </div>
+
+    <div class="card">
+      <p><strong>③ 写入 <code>upper[]</code>（真正的限制）· <code>_retime_qp</code></strong></p>
+      <pre style="margin:8px 0 12px;padding:12px;background:#12161f;border:1px solid var(--line);border-radius:8px;overflow:auto;font-family:var(--mono);font-size:12px;color:var(--tick);line-height:1.45">lower[:] = 1/dt_max;  upper[:] = 1/dt_min          # 全局盒
+upper = min(upper, v_max/|dp|)                     # 可选关节速度
+upper = min(upper, policy_fps * transport_kappa_max)  # 全帧 ≤1.5×
+near  = contact_mask(...)
+upper[near] = min(upper[near], policy_fps * contact_kappa)  # 窗内 ≤1.1×
+# 然后 box_qp / calibrate：在 [lower, upper] 内求 s，平均仍对齐 κ</pre>
+      <p style="margin:0 0 8px">
+        κ=1.3 配方下数值：接触窗 <code>s≤33</code>（不能再冲到 1.4–1.5×），
+        其它帧 <code>s≤45</code>，全局仍受 <code>s≤66.7</code> 约束（通常 transport 先顶到 45）。
+        校准用的 <code>calib_upper</code> <strong>不含</strong>接触盖帽，
+        这样平均对齐 κ 时，会把省下的时间推到未盖帽的搬运帧。
+      </p>
+      <p style="margin:0">
+        <strong>不是</strong>改 <code>rate_hessian</code> 目标函数；加速度项还在。
+        只是接触帧的可行域被盒子截断，解再也走不到「细动作狂加速」。
+      </p>
+    </div>
+
+    <div class="card">
+      <p><strong>④ 合块锁定（另一路约束）· <code>inference_loop</code></strong></p>
+      <pre style="margin:8px 0 0;padding:12px;background:#12161f;border:1px solid var(--line);border-radius:8px;overflow:auto;font-family:var(--mono);font-size:12px;color:var(--tick);line-height:1.45">lock = old_step_dt[anchor : anchor + d_hat + qp_lock_extra]
+# qp_prefix_lock 时传入 TimeAxisQP.retime(..., lock_durations=lock)
+lower[:locked] = upper[:locked] = 1/lock_dt   # 前缀钉死，不能重解</pre>
+    </div>
+
+    <div class="anim" id="anim-fix">
+      <div class="anim-head">
+        <h3>修法动画：掩码 → upper 盖帽 → 时间挪去搬运</h3>
+        <span class="anim-controls">
+          <button type="button" class="primary" data-act="play">播放</button>
+          <button type="button" data-act="pause">暂停</button>
+          <button type="button" data-act="prev">上一步</button>
+          <button type="button" data-act="next">下一步</button>
+          <button type="button" data-act="reset">重置</button>
+          <span class="anim-step" data-step></span>
+        </span>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--fine)"></i>接触窗帧（s≤1.1×）</span>
+        <span><i style="background:var(--b)"></i>搬运（s≤1.5×）</span>
+        <span><i style="background:var(--lock)"></i>contact_mask</span>
+      </div>
+      <svg class="stage" viewBox="0 0 720 210" role="img" aria-label="分段限速把加速挪到搬运">
+        <g id="fix-frames">
+          <rect class="f0" x="30" y="50" width="40" height="70" rx="3" fill="#5b9fd4"/>
+          <rect class="f1" x="78" y="50" width="40" height="70" rx="3" fill="#5b9fd4"/>
+          <rect class="f2" x="126" y="50" width="40" height="70" rx="3" fill="#5b9fd4"/>
+          <rect class="f3" x="174" y="50" width="40" height="70" rx="3" fill="#e0893c"/>
+          <rect class="f4" x="222" y="50" width="40" height="70" rx="3" fill="#e0893c"/>
+          <rect class="f5" x="270" y="50" width="40" height="70" rx="3" fill="#e0893c"/>
+          <rect class="f6" x="318" y="50" width="40" height="70" rx="3" fill="#e0893c"/>
+          <rect class="f7" x="366" y="50" width="40" height="70" rx="3" fill="#5b9fd4"/>
+          <rect class="f8" x="414" y="50" width="40" height="70" rx="3" fill="#5b9fd4"/>
+          <rect class="f9" x="462" y="50" width="40" height="70" rx="3" fill="#5b9fd4"/>
+        </g>
+        <rect class="mask" x="170" y="42" width="200" height="86" rx="6"
+              fill="none" stroke="#b07cc9" stroke-width="2" stroke-dasharray="5 4" opacity="0"/>
+        <text x="30" y="150" fill="#8b93a7" font-family="IBM Plex Mono" font-size="12">帧序列（高=更快=s 更大）</text>
+        <text class="fix-lab" x="30" y="178" fill="#f0c14a" font-family="IBM Plex Mono" font-size="12">初始：旧 QP 反分配</text>
+        <line x1="30" y1="200" x2="510" y2="200" stroke="#2c3448"/>
+        <text x="520" y="58" fill="#8b93a7" font-family="IBM Plex Sans" font-size="12">① 接触窗判定</text>
+        <text x="520" y="78" fill="#b07cc9" font-family="IBM Plex Mono" font-size="12">|Δgrip|&gt;0.02 ±10</text>
+        <text x="520" y="108" fill="#8b93a7" font-family="IBM Plex Sans" font-size="12">② upper[near]≤</text>
+        <text x="520" y="128" fill="#e0893c" font-family="IBM Plex Mono" font-size="12">30×contact_κ=33</text>
+        <text x="520" y="158" fill="#8b93a7" font-family="IBM Plex Sans" font-size="12">③ 盒约束求解</text>
+        <text x="520" y="178" fill="#3db89a" font-family="IBM Plex Mono" font-size="12">平均仍对齐 κ</text>
+      </svg>
+      <p class="anim-caption" data-cap="fix">点「播放」：先画 mask（|Δgrip|±10）→ 再把窗内 s 压到 ≤1.1× → 搬运抬高。</p>
+    </div>
+
+    <!-- 4 -->
+    <h2>4. 验证与测试</h2>
+    <h3>4.1 离线回放（真机 trace 重解）</h3>
+    <p>脚本 <code>scripts/replay_qp_timeaxis.py</code>，在 <code>2018b7</code> 合块顺序上对比：</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>变体</th><th>实际κ</th><th>夹爪段</th><th>搬运段</th><th>Δ速 p95</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>uniform</td><td>1.20</td><td>1.20</td><td>1.20</td><td>0</td></tr>
+          <tr><td>qp 旧</td><td>1.24</td><td><strong>1.33</strong></td><td>1.18</td><td>0.30</td></tr>
+          <tr class="hi">
+            <td>contact1.1 + tr1.5 + lock</td>
+            <td>1.19</td><td><strong>1.10</strong></td><td><strong>1.27</strong></td><td>0.18</td>
+          </tr>
+          <tr class="hi">
+            <td>同上 @κ=1.3</td>
+            <td>1.24</td><td>1.10</td><td>1.36</td><td>0.17</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>4.2 真机</h3>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>run</th><th>配置</th><th>任务</th><th>prog</th><th>夹→放（搬运）</th><th>松→夹（找球）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>d84c6f</code></td><td>裸 QP 1.2</td>
+            <td>毛糙·掉桶</td><td>35.6</td><td>1.80</td><td>5.36（尾 14.7s）</td>
+          </tr>
+          <tr>
+            <td><code>bcc86d</code></td><td>phase 1.2</td>
+            <td>夹放更稳；偶发离球远</td><td>33.4</td><td><strong>1.45</strong></td><td>4.57（尾 16s）</td>
+          </tr>
+          <tr class="hi">
+            <td><code>7bbe7d</code></td><td>phase 1.3</td>
+            <td><strong>3/3 一次成功</strong></td><td>35.5</td><td>2.25</td><td><strong>3.27 无长尾</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      线上确认：夹爪段贴 1.0–1.1×；交接速率跳 p50 从 ~0.10 降到 ~0.05（lock 起作用）。
+      今日工作点：<code>h7_k1p3_qp_phase_4x4</code>。
+    </p>
+
+    <h3>4.3 单测补充</h3>
+    <div class="card">
+      <p>文件：<code>tests/deploy/test_time_axis_qp.py</code>、<code>tests/deploy/test_inference_loop.py</code></p>
+      <ul>
+        <li><code>test_contact_mask_dilates_gripper_events</code> — 夹爪事件 ±window 掩码</li>
+        <li><code>test_time_axis_qp_contact_cap_limits_rate_near_grip</code> — 接触窗速率 ≤ contact_kappa</li>
+        <li><code>test_time_axis_qp_contact_cap_keeps_mean_speed</code> — 平均仍对齐 κ，搬运段更快</li>
+        <li><code>test_time_axis_qp_transport_cap</code> — 全帧 ≤ transport_kappa_max</li>
+        <li><code>test_time_axis_qp_prefix_lock_durations</code>（既有）— lock_durations 前缀冻结</li>
+        <li><code>test_inference_loop_qp_prefix_lock</code> — 回路开/关时是否把旧 dt 传入 QP</li>
+      </ul>
+      <p style="margin:8px 0 0">跑：<code>python -m pytest -q tests/deploy/test_time_axis_qp.py tests/deploy/test_inference_loop.py</code></p>
+    </div>
+
+    <h3>4.4 残留风险</h3>
+    <ul>
+      <li>接触窗约覆盖 35–45% 执行帧 → κ 预算偏保守；可试 <code>contact_window_frames=6</code>。</li>
+      <li>偶发「离球远多次夹」更像 <strong>tracker/lead 滞后</strong>（命令超前、实测未跟上），下一步查 tracker，而非再拧时间轴。</li>
+    </ul>
+
+    <p class="footer">
+      归档：<a href="./index.html">问题档案</a> ·
+      对比动画 <a href="./qp-vs-v2-retiming.html">v2 vs fasterVLA 生成/下发</a> ·
+      日报 <a href="../daily-2026-11-24-h7.html">2026-11-24</a> ·
+      博客 <a href="http://www.xiaoanger.com/topics/robot/deploy/execution/daily/2026-11-24/">xiaoanger daily</a> ·
+      代码 <code>postprocess/retime.py</code> · <code>client/inference_loop.py</code>
+    </p>
+  </div>
+
+  <script src="./anim-player.js"></script>
+  <script>
+    (function () {
+      function setBar(el, h, baseY) {
+        el.setAttribute("height", String(h));
+        el.setAttribute("y", String(baseY - h));
+      }
+
+      /* ---- cause ---- */
+      const causeRoot = document.getElementById("anim-cause");
+      const cause = {
+        fine: document.querySelector(".c-qp-fine"),
+        carry: document.querySelector(".c-qp-carry"),
+        fl: document.querySelector(".c-qp-fine-lab"),
+        cl: document.querySelector(".c-qp-carry-lab"),
+        cap: document.querySelector('[data-cap="cause"]'),
+      };
+      AnimStepPlayer({
+        root: causeRoot,
+        intervalMs: 1200,
+        steps: [
+          function () {
+            setBar(cause.fine, 48, 206);
+            setBar(cause.carry, 48, 206);
+            cause.fl.textContent = "s=36 · v=0.36";
+            cause.cl.textContent = "s=36 · v=3.6";
+            cause.cap.textContent = "① 均匀 κ：两段 s 相同，关节速度差大（0.36 vs 3.6）";
+          },
+          function () {
+            setBar(cause.fine, 78, 206);
+            setBar(cause.carry, 48, 206);
+            cause.fl.textContent = "s=60 · v=0.60";
+            cause.cl.textContent = "s=36 · v=3.6";
+            cause.cap.textContent = "② 加速度项压 ‖s·dp‖ 差 → 细动作 s↑（dt 变短）";
+          },
+          function () {
+            setBar(cause.fine, 78, 206);
+            setBar(cause.carry, 28, 206);
+            cause.fl.textContent = "s=60 · v=0.60";
+            cause.cl.textContent = "s=20 · v=2.00";
+            cause.cap.textContent = "③ 搬运 s↓；平均仍可贴 κ → 夹放冲、搬运拖";
+          },
+        ],
+      }).go(0);
+
+      /* ---- handoff ---- */
+      const handoff = {
+        neu: [document.querySelector(".h-new"), document.querySelector(".h-new2"), document.querySelector(".h-new3")],
+        lock: [document.querySelector(".h-lock"), document.querySelector(".h-lock2"), document.querySelector(".h-lock3")],
+        note: document.querySelector(".h-note"),
+        cap: document.querySelector('[data-cap="handoff"]'),
+      };
+      const handoffSame = [
+        { x: 24, w: 70, fill: "#5b9fd4" },
+        { x: 94, w: 55, fill: "#3a7eb0" },
+        { x: 149, w: 90, fill: "#7eb8ff" },
+      ];
+      const handoffLockSame = [
+        { x: 360, w: 70, fill: "#5b9fd4" },
+        { x: 430, w: 55, fill: "#3a7eb0" },
+        { x: 485, w: 90, fill: "#7eb8ff" },
+      ];
+      function applyBars(els, specs) {
+        els.forEach(function (el, i) {
+          el.setAttribute("x", String(specs[i].x));
+          el.setAttribute("width", String(specs[i].w));
+          el.setAttribute("fill", specs[i].fill);
+        });
+      }
+      AnimStepPlayer({
+        root: document.getElementById("anim-handoff"),
+        intervalMs: 1300,
+        steps: [
+          function () {
+            applyBars(handoff.neu, handoffSame);
+            applyBars(handoff.lock, handoffLockSame);
+            handoff.note.textContent = "合块前：新旧时间轴对齐";
+            handoff.note.setAttribute("fill", "#8b93a7");
+            handoff.cap.textContent = "① 合块点：旧计划速率（上将对比无锁 / 有锁）";
+          },
+          function () {
+            applyBars(handoff.neu, [
+              { x: 24, w: 40, fill: "#d45d5d" },
+              { x: 64, w: 100, fill: "#b04a4a" },
+              { x: 164, w: 70, fill: "#e0893c" },
+            ]);
+            applyBars(handoff.lock, handoffLockSame);
+            handoff.note.textContent = "无锁：整段重解 → 接缝跳变";
+            handoff.note.setAttribute("fill", "#d45d5d");
+            handoff.cap.textContent = "② 无 lock_durations：新计划开头速率跳变（红）";
+          },
+          function () {
+            applyBars(handoff.neu, [
+              { x: 24, w: 40, fill: "#d45d5d" },
+              { x: 64, w: 100, fill: "#b04a4a" },
+              { x: 164, w: 70, fill: "#e0893c" },
+            ]);
+            applyBars(handoff.lock, [
+              { x: 360, w: 70, fill: "#b07cc9" },
+              { x: 430, w: 55, fill: "#9a6bb5" },
+              { x: 485, w: 90, fill: "#3db89a" },
+            ]);
+            handoff.note.textContent = "前缀锁住 · 后缀仍可加速";
+            handoff.note.setAttribute("fill", "#3db89a");
+            handoff.cap.textContent = "③ qp_prefix_lock：前 d̂+2 帧沿用旧 dt；跳 p50 ~0.10→0.05";
+          },
+        ],
+      }).go(0);
+
+      /* ---- fix ---- */
+      const frames = Array.from({ length: 10 }, function (_, i) {
+        return document.querySelector(".f" + i);
+      });
+      const mask = document.querySelector(".mask");
+      const fixLab = document.querySelector(".fix-lab");
+      const fixCap = document.querySelector('[data-cap="fix"]');
+      const heightsOld = [55, 58, 52, 78, 82, 80, 76, 50, 48, 54];
+      const heightsNew = [62, 68, 70, 42, 42, 42, 42, 72, 74, 70];
+      function setHeights(hs) {
+        frames.forEach(function (el, i) {
+          el.setAttribute("height", String(hs[i]));
+          el.setAttribute("y", String(120 - hs[i]));
+        });
+      }
+      AnimStepPlayer({
+        root: document.getElementById("anim-fix"),
+        intervalMs: 1400,
+        steps: [
+          function () {
+            setHeights(heightsOld);
+            frames.forEach(function (el, i) {
+              el.setAttribute("fill", i >= 3 && i <= 6 ? "#e0893c" : "#5b9fd4");
+            });
+            mask.setAttribute("opacity", "0");
+            fixLab.textContent = "初始：旧 QP 反分配（接触帧更高）";
+            fixCap.textContent = "① 尚未判定接触窗；细动作速率偏高";
+          },
+          function () {
+            setHeights(heightsOld);
+            mask.setAttribute("opacity", "1");
+            fixLab.textContent = "near[] = True（只判定，未限速）";
+            fixCap.textContent = "② contact_mask：|Δgrip|>0.02 事件 ±10 帧";
+          },
+          function () {
+            setHeights(heightsNew);
+            mask.setAttribute("opacity", "1");
+            fixLab.textContent = "盒内求解：接触压住 · 搬运吃加速";
+            fixCap.textContent = "③ upper[near]≤30×1.1；搬运≤1.5×；目标函数未改";
+          },
+        ],
+      }).go(0);
+    })();
+  </script>
+</body>
+</html>

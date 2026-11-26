@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from fastervla.deploy.client.recorder import (
     PeriodicFlusher,
     TraceRecorder,
     make_run_dir,
+    sanitize_run_label,
 )
 from fastervla.deploy.client.runtime import require_execute_tty
 from fastervla.deploy.postprocess.arm_chunk_filter import apply_arm_chunk_filter
@@ -36,6 +38,7 @@ from fastervla.deploy.postprocess.retime import (
     TimeAxisQPConfig,
     UniformRetimer,
 )
+from fastervla.deploy.recipe import extract_config_path, load_run_recipe
 
 
 def _openpi_transport(host: str, port: int):
@@ -54,6 +57,21 @@ def _add_common_robot_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--port", type=int, default=8013)
     p.add_argument("--duration-s", type=float, default=60.0)
     p.add_argument("--sdk-root", default="/home/agi/app/gdk")
+    p.add_argument(
+        "--robot-aid",
+        default=None,
+        help="Expected GDK robot AID (default: GdkEnvConfig / g2s AID)",
+    )
+    p.add_argument(
+        "--sdk-source-ip",
+        default=None,
+        help="GDK LOCATOR_IP (h7: 192.168.112.212; g2s default 10.42.1.101)",
+    )
+    p.add_argument(
+        "--discovery-uri",
+        default=None,
+        help="AORTA_DISCOVERY_URI (h7: http://192.168.112.212:2379)",
+    )
     p.add_argument("--prompt", default="Put the shuttlecock into the shuttlecock tube.")
     p.add_argument("--results-dir", type=Path, default=Path("results"))
     p.add_argument(
@@ -67,9 +85,26 @@ def _add_common_robot_args(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Disable robot-live TraceRecorder (not recommended)",
     )
+    p.add_argument(
+        "--tag",
+        default=None,
+        help="Label baked into run dir: robot-live-<stamp>-<hex>-<tag>/; also in experiment + run.log",
+    )
+    p.add_argument(
+        "--run-id",
+        default=None,
+        help="Exact run id: robot-live-<run-id>/ (must be unique); overrides auto stamp-hex",
+    )
+    p.add_argument(
+        "--ignore-right-gripper-health",
+        action="store_true",
+        help="Skip GDK end_state read (legacy broken right bus); leaves grip obs at 0",
+    )
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(
+    *, recipe_defaults: dict | None = None
+) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="fastervla-deploy", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -84,6 +119,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser(
         "run",
         help="L1 InferenceLoop (100 Hz control + async infer) with TraceRecorder",
+    )
+    run.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Deploy recipe YAML (configs/deploy/*.yaml); CLI flags override",
     )
     _add_common_robot_args(run)
     run.add_argument(
@@ -112,10 +153,88 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Enable optional inference-buffer wall-clock floor in TimeAxisQP",
     )
     run.add_argument(
+        "--qp-contact-kappa",
+        type=float,
+        default=None,
+        help="TimeAxisQP: cap rate at policy_fps·x within --qp-contact-window frames of a gripper change",
+    )
+    run.add_argument("--qp-contact-window", type=int, default=10)
+    run.add_argument(
+        "--qp-contact-window-scale-kappa",
+        action="store_true",
+        help="TimeAxisQP: multiply contact window by κ so wall-clock soft duration stays ≈constant",
+    )
+    run.add_argument(
+        "--qp-contact-grip-delta",
+        type=float,
+        default=0.02,
+        help="TimeAxisQP: |Δgrip| threshold to mark a contact event (raise to ignore micro-noise)",
+    )
+    run.add_argument(
+        "--qp-transport-kappa-max",
+        type=float,
+        default=None,
+        help="TimeAxisQP: cap every frame's rate at policy_fps·x",
+    )
+    run.add_argument(
+        "--qp-dwell-kappa-max",
+        type=float,
+        default=None,
+        help="TimeAxisQP: pin near-stationary non-contact frames up to policy_fps·x",
+    )
+    run.add_argument(
+        "--qp-dwell-step-rad",
+        type=float,
+        default=0.005,
+        help="TimeAxisQP: max |Δq|_∞ (rad) to count a frame as dwell",
+    )
+    run.add_argument(
+        "--qp-prefix-lock",
+        action="store_true",
+        help="TimeAxisQP: lock first d_hat+extra frame durations to the old plan at merge",
+    )
+    run.add_argument("--qp-lock-extra", type=int, default=2)
+    run.add_argument(
         "--tracker",
         choices=("none", "lead", "mpc"),
         default="lead",
         help="L3 tracker: passthrough / LeadTracker / AcadosMpcTracker",
+    )
+    run.add_argument(
+        "--lead-tau-s",
+        type=float,
+        default=0.057,
+        help="LeadTracker tau_s (soft-lead time constant)",
+    )
+    run.add_argument(
+        "--lead-gain",
+        type=float,
+        default=0.25,
+        help="LeadTracker gain",
+    )
+    run.add_argument(
+        "--lead-max-lead-rad",
+        type=float,
+        default=0.06,
+        help="LeadTracker per-joint lead clip (rad)",
+    )
+    run.add_argument(
+        "--lead-smooth-tau-s",
+        type=float,
+        default=0.040,
+        help="LeadTracker EMA smooth tau",
+    )
+    run.add_argument(
+        "--lead-hold-during-blend",
+        type=lambda s: str(s).strip().lower() in ("1", "true", "yes", "on"),
+        default=True,
+        help="Hold lead at zero during plan-blend (true/false)",
+    )
+    run.add_argument(
+        "--lead-closed-grip-max-lead-rad",
+        type=float,
+        default=None,
+        help="LeadTracker: tighter max_lead while right grip closed (carry sway A/B)",
     )
     run.add_argument(
         "--hold-gripper",
@@ -154,6 +273,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--t-infer-min-s", type=float, default=0.0)
     run.add_argument("--t-switch-min-s", type=float, default=0.0)
+    # After all add_argument: otherwise action default= clobbers recipe set_defaults.
+    if recipe_defaults:
+        run.set_defaults(**recipe_defaults)
 
     an = sub.add_parser(
         "analyze",
@@ -200,11 +322,42 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Skip runs with fewer prediction chunks",
     )
+
+    rep = sub.add_parser(
+        "report",
+        help="One-shot post-run line: ball cycles + seek dwell + control lag/EE",
+    )
+    rep.add_argument("--run", type=Path, required=True, help="robot-live-<id> directory")
+    rep.add_argument("--out", type=Path, default=None, help="Optional JSON path")
+    rep.add_argument("--urdf", type=Path, default=None)
+    rep.add_argument(
+        "--no-control",
+        action="store_true",
+        help="Skip control_quality (faster; no lag/EE)",
+    )
     return p
 
 
+def _gdk_env_from_args(args: argparse.Namespace) -> GdkEnvConfig:
+    # Default False: read real end_states into policy obs. Legacy g2s units with a
+    # broken right-end bus can pass --ignore-right-gripper-health.
+    kw: dict = {
+        "sdk_root": args.sdk_root,
+        "ignore_right_gripper_health": bool(
+            getattr(args, "ignore_right_gripper_health", False)
+        ),
+    }
+    if getattr(args, "robot_aid", None):
+        kw["robot_aid"] = str(args.robot_aid)
+    if getattr(args, "sdk_source_ip", None):
+        kw["sdk_source_ip"] = str(args.sdk_source_ip)
+    if getattr(args, "discovery_uri", None):
+        kw["discovery_uri"] = str(args.discovery_uri)
+    return GdkEnvConfig(**kw)
+
+
 def _open_platform_backend(args: argparse.Namespace, *, mode: str):
-    gdk_cfg = GdkEnvConfig(sdk_root=args.sdk_root, ignore_right_gripper_health=True)
+    gdk_cfg = _gdk_env_from_args(args)
     reexec_with_gdk_env(gdk_cfg)
     sdk, robot = open_real_gdk(gdk_cfg)
     g2_cfg = AgibotG2Config(
@@ -236,11 +389,71 @@ def _open_platform_backend(args: argparse.Namespace, *, mode: str):
     return sdk, platform, backend, robot
 
 
+class _TeeTextIO:
+    """Mirror writes to console + run.log (keeps TTY semantics on the console)."""
+
+    def __init__(self, console, log_file) -> None:  # noqa: ANN001
+        self._console = console
+        self._log = log_file
+
+    def write(self, data: str) -> int:
+        n = self._console.write(data)
+        self._log.write(data)
+        self._log.flush()
+        return n
+
+    def flush(self) -> None:
+        self._console.flush()
+        self._log.flush()
+
+    def fileno(self) -> int:
+        return self._console.fileno()
+
+    def isatty(self) -> bool:
+        return bool(self._console.isatty())
+
+    @property
+    def encoding(self) -> str:
+        return getattr(self._console, "encoding", "utf-8")
+
+
+def _attach_run_log(run_dir: Path) -> Path:
+    """Tee stdout/stderr into ``run_dir/run.log`` for the rest of the process."""
+    log_path = run_dir / "run.log"
+    log_f = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 — kept open for process life
+    sys.stdout = _TeeTextIO(sys.__stdout__, log_f)  # type: ignore[assignment]
+    sys.stderr = _TeeTextIO(sys.__stderr__, log_f)  # type: ignore[assignment]
+    return log_path
+
+
+def _run_label_fields(args: argparse.Namespace, run_dir: Path | None) -> dict:
+    tag = getattr(args, "tag", None)
+    run_id_arg = getattr(args, "run_id", None)
+    return {
+        "tag": sanitize_run_label(tag) if tag else None,
+        "run_id": (
+            run_dir.name.removeprefix("robot-live-") if run_dir is not None else None
+        ),
+        "run_id_arg": sanitize_run_label(run_id_arg) if run_id_arg else None,
+        "run_log": str(run_dir / "run.log") if run_dir is not None else None,
+    }
+
+
 def _make_recorder(args: argparse.Namespace, *, capacity_ticks: int) -> tuple[Path | None, TraceRecorder | None, PeriodicFlusher | None]:
     if args.no_trace:
         return None, None, None
-    run_dir = make_run_dir(args.results_dir)
+    tag = getattr(args, "tag", None)
+    run_id = getattr(args, "run_id", None)
+    run_dir = make_run_dir(args.results_dir, tag=tag, run_id=run_id)
+    log_path = _attach_run_log(run_dir)
     rec = TraceRecorder(run_dir, capacity_ticks=capacity_ticks, horizon=30)
+    rid = run_dir.name.removeprefix("robot-live-")
+    rec.set_experiment(
+        tag=sanitize_run_label(tag) if tag else None,
+        run_id=rid,
+        run_id_arg=sanitize_run_label(run_id) if run_id else None,
+        run_log=str(log_path),
+    )
     flusher = None
     if float(args.flush_every_s) > 0:
         flusher = PeriodicFlusher(rec, every_s=float(args.flush_every_s))
@@ -276,6 +489,7 @@ def _shadow_loop(args: argparse.Namespace) -> int:
                     "duration_s": args.duration_s,
                     "infer_period_s": args.infer_period_s,
                     "trace_dir": str(run_dir) if run_dir else None,
+                    **_run_label_fields(args, run_dir),
                     "flush_every_s": args.flush_every_s,
                     "ignore_right_gripper_health": True,
                 },
@@ -465,6 +679,13 @@ def _run_loop(args: argparse.Namespace) -> int:
                     kappa_max=float(args.kappa_max),
                     kappa_min=float(args.kappa_min),
                     buffer_window_enabled=bool(args.qp_buffer_window),
+                    contact_kappa=args.qp_contact_kappa,
+                    contact_window_frames=int(args.qp_contact_window),
+                    contact_window_scale_kappa=bool(args.qp_contact_window_scale_kappa),
+                    contact_grip_delta=float(args.qp_contact_grip_delta),
+                    transport_kappa_max=args.qp_transport_kappa_max,
+                    dwell_kappa_max=args.qp_dwell_kappa_max,
+                    dwell_step_rad=float(args.qp_dwell_step_rad),
                 )
             )
             seed_timed = retimer.retime(seed, state=np.asarray(st0.q, dtype=np.float64))
@@ -489,12 +710,20 @@ def _run_loop(args: argparse.Namespace) -> int:
             rtc_mode="INPAINT",
             tracker=str(args.tracker),
             use_lead_tracker=str(args.tracker) != "none",
+            lead_tau_s=float(args.lead_tau_s),
+            lead_gain=float(args.lead_gain),
+            lead_max_lead_rad=float(args.lead_max_lead_rad),
+            lead_smooth_tau_s=float(args.lead_smooth_tau_s),
+            lead_hold_during_blend=bool(args.lead_hold_during_blend),
+            lead_closed_grip_max_lead_rad=args.lead_closed_grip_max_lead_rad,
             hold_gripper=bool(args.hold_gripper),
             execution_prefix_frames=int(args.prefix_frames),
             execution_buffer_frames=int(args.buffer_frames),
             arm_chunk_filter=str(args.arm_chunk_filter),
             arm_chunk_filter_cutoff_hz=float(args.arm_filter_cutoff_hz),
             arm_interpolation=str(args.arm_interp),
+            qp_prefix_lock=bool(args.qp_prefix_lock),
+            qp_lock_extra_frames=int(args.qp_lock_extra),
         )
         print(
             json.dumps(
@@ -505,6 +734,12 @@ def _run_loop(args: argparse.Namespace) -> int:
                     "kappa": args.kappa,
                     "retimer": args.retimer,
                     "tracker": args.tracker,
+                    "lead_tau_s": float(args.lead_tau_s),
+                    "lead_gain": float(args.lead_gain),
+                    "lead_max_lead_rad": float(args.lead_max_lead_rad),
+                    "lead_smooth_tau_s": float(args.lead_smooth_tau_s),
+                    "lead_hold_during_blend": bool(args.lead_hold_during_blend),
+                    "lead_closed_grip_max_lead_rad": args.lead_closed_grip_max_lead_rad,
                     "hold_gripper": bool(args.hold_gripper),
                     "prefix_frames": int(args.prefix_frames),
                     "buffer_frames": int(args.buffer_frames),
@@ -512,8 +747,20 @@ def _run_loop(args: argparse.Namespace) -> int:
                     "arm_filter_cutoff_hz": float(args.arm_filter_cutoff_hz),
                     "arm_interp": str(args.arm_interp),
                     "qp_buffer_window": bool(getattr(args, "qp_buffer_window", False)),
+                    "qp_contact_kappa": args.qp_contact_kappa,
+                    "qp_contact_window": int(args.qp_contact_window),
+                    "qp_contact_window_scale_kappa": bool(
+                        args.qp_contact_window_scale_kappa
+                    ),
+                    "qp_contact_grip_delta": float(args.qp_contact_grip_delta),
+                    "qp_transport_kappa_max": args.qp_transport_kappa_max,
+                    "qp_dwell_kappa_max": args.qp_dwell_kappa_max,
+                    "qp_dwell_step_rad": float(args.qp_dwell_step_rad),
+                    "qp_prefix_lock": bool(args.qp_prefix_lock),
+                    "qp_lock_extra": int(args.qp_lock_extra),
                     "duration_s": args.duration_s,
                     "trace_dir": str(run_dir) if run_dir else None,
+                    **_run_label_fields(args, run_dir),
                     "flush_every_s": args.flush_every_s,
                 },
                 ensure_ascii=False,
@@ -644,15 +891,43 @@ def _analyze_loop(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-    if args.cmd == "shadow":
-        require_execute_tty(mode="shadow")
-        return _shadow_loop(args)
-    if args.cmd == "run":
-        return _run_loop(args)
-    if args.cmd == "analyze":
-        return _analyze_loop(args)
-    raise SystemExit(f"unknown command {args.cmd}")
+    # Entry-point calls main() with argv=None; must read sys.argv for --config.
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    cfg_path = extract_config_path(argv_list)
+    recipe: dict | None = None
+    if cfg_path is not None:
+        recipe = load_run_recipe(cfg_path)
+        print(
+            json.dumps(
+                {"config_loaded": str(cfg_path), "recipe_keys": sorted(recipe)},
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+    args = _build_parser(recipe_defaults=recipe).parse_args(argv_list)
+    try:
+        if args.cmd == "shadow":
+            require_execute_tty(mode="shadow")
+            return _shadow_loop(args)
+        if args.cmd == "run":
+            return _run_loop(args)
+        if args.cmd == "analyze":
+            return _analyze_loop(args)
+        if args.cmd == "report":
+            from fastervla.deploy.analysis.report import write_report
+
+            write_report(
+                args.run,
+                out=args.out,
+                control=not bool(args.no_control),
+                urdf=args.urdf,
+            )
+            return 0
+        raise SystemExit(f"unknown command {args.cmd}")
+    except KeyboardInterrupt:
+        # Exit 130 (128+SIGINT). Keep message short; shell must stay up.
+        print(json.dumps({"interrupted": True, "signal": "SIGINT"}, ensure_ascii=False), flush=True)
+        return 130
 
 
 if __name__ == "__main__":

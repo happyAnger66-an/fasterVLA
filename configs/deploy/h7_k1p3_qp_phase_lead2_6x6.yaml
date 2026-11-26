@@ -1,0 +1,53 @@
+# h7 · κ=1.3 phase + Lead2 · 6+6 合块（相对默认 4+4 少切换 / 少重规划）
+# 假说：吞吐对响应要求不高，拉长 prefix/buffer 可降 handoff 跳变与体感晃，bpm 不明显掉。
+#   fastervla-deploy run --config configs/deploy/h7_k1p3_qp_phase_lead2_6x6.yaml \
+#     --mode execute --duration-s 180 --tag R5_6x6
+
+meta:
+  name: h7_k1p3_qp_phase_lead2_6x6
+  robot_aid: G2A0205C800352
+  machine: h7
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.3
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: qp
+  contact_kappa: 1.1
+  contact_window_frames: 10
+  transport_kappa_max: 1.5
+  prefix_lock: true
+  lock_extra_frames: 2
+
+inference:
+  tracker: lead
+  execution_prefix_frames: 6
+  execution_buffer_frames: 6
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+lead_tracker:
+  tau_s: 0.09
+  gain: 0.35
+  max_lead_rad: 0.10
+  lead_smooth_tau_s: 0.040
+  hold_during_blend: true
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 192.168.112.212
+  discovery_uri: http://192.168.112.212:2379

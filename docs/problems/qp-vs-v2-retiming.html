@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>生成 vs 下发 · v2 re_allocate 与 fasterVLA step_dt</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #10131a; --bg1: #171c26; --bg2: #1f2633;
+      --ink: #e8ecf4; --muted: #8b93a7; --line: #2c3448;
+      --a: #5b9fd4; --b: #3db89a; --fine: #e0893c; --tick: #f0c14a;
+      --warn: #d45d5d; --lock: #b07cc9;
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --serif: "IBM Plex Serif", Georgia, serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--font); color: var(--ink);
+      background:
+        radial-gradient(900px 480px at 0% 0%, #1a2838 0%, transparent 55%),
+        radial-gradient(700px 400px at 100% 0%, #2a2438 0%, transparent 48%),
+        var(--bg0);
+      line-height: 1.55; font-size: 16px;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 40px 18px 88px; }
+    .crumb { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+    .crumb a { color: var(--a); text-decoration: none; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--b); margin: 0 0 8px;
+    }
+    h1 {
+      font-family: var(--serif); font-weight: 600;
+      font-size: clamp(1.45rem, 3.2vw, 2rem);
+      margin: 0 0 10px; letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .lede { color: var(--muted); max-width: 48em; margin: 0 0 18px; }
+    h2 { font-family: var(--serif); font-size: 1.2rem; margin: 28px 0 10px; }
+    p, li { color: var(--muted); }
+    p { margin: 0 0 10px; }
+    ul { margin: 0 0 12px; padding-left: 1.2em; }
+    li { margin: 0 0 5px; }
+    strong { color: var(--ink); }
+    code {
+      font-family: var(--mono); font-size: 0.88em; color: var(--tick);
+      background: rgba(240,193,74,.08); padding: 1px 5px; border-radius: 4px;
+    }
+    .card {
+      border: 1px solid var(--line); border-radius: 12px; background: var(--bg1);
+      padding: 14px 16px; margin: 12px 0 16px;
+    }
+    .grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .pane {
+      border: 1px solid var(--line); border-radius: 10px; background: var(--bg2);
+      padding: 12px;
+    }
+    .pane h3 { margin: 0 0 6px; font-size: 0.95rem; color: var(--ink); }
+    .pane .sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 0 0 8px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; align-items: center; }
+    .anim-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .anim-step {
+      font-family: var(--mono); font-size: 12px; color: var(--muted);
+      margin-left: 4px; min-width: 3.5em;
+    }
+    button {
+      font-family: var(--font); font-size: 13px; font-weight: 500;
+      color: var(--ink); background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 8px; padding: 7px 12px; cursor: pointer;
+    }
+    button.primary { background: #234438; border-color: #3d6b58; }
+    button:hover { border-color: var(--b); }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .cap { font-family: var(--mono); font-size: 12px; color: var(--tick); min-height: 1.3em; flex: 1 1 100%; margin: 4px 0 0; }
+    svg.stage { width: 100%; height: auto; display: block; background: #12161f; border-radius: 8px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px 14px; font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
+    th { background: var(--bg2); color: var(--ink); font-weight: 500; }
+    .footer { margin-top: 28px; color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--line); padding-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="crumb"><a href="./index.html">问题档案</a> /
+      <a href="./2026-11-24-qp-grip-rate-inversion.html">夹放不稳</a> / 生成vs下发</p>
+    <p class="eyebrow">retiming semantics</p>
+    <h1>两边都会按控制频率「取样下发」——差在取样之前改了什么</h1>
+    <p class="lede">
+      是的：100Hz 伺服环都要从计划里取出当前命令，这是<strong>下发侧插值</strong>。
+      关键差别在<strong>生成侧</strong>：v2 先把路径重采到均匀模型时间栅格；fasterVLA 保留原路点，只给每段一个
+      <code>step_dt</code>，下发时用墙钟去「吃」这段时长。
+    </p>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th></th><th>realtime-vla-v2</th><th>fasterVLA TimeAxisQP</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>生成</th>
+            <td>QP 求非均匀时间 → <code>re_allocate</code> 把路点<strong>重采样</strong>到均匀 <code>dt_ref</code></td>
+            <td>QP 求非均匀 <code>step_dt</code> → <strong>路点坐标不变</strong></td>
+          </tr>
+          <tr>
+            <th>计划里存什么</th>
+            <td>新路点序列（几何已被拧过），隐含均匀模型拍</td>
+            <td>旧路点 + 每段墙钟时长 <code>step_dt[i]</code></td>
+          </tr>
+          <tr>
+            <th>下发（控制频率）</th>
+            <td>按均匀进度取路点（或等价插值）</td>
+            <td><code>advance(1/100s)</code> 按 <code>step_dt</code> 推进模型进度，再 <code>reference()</code></td>
+          </tr>
+          <tr>
+            <th>细动作变「快」的方式</th>
+            <td>路径上少停：同一墙钟扫过更多几何（采样点变稀）</td>
+            <td>同一几何帧的 <code>step_dt</code> 变短：墙钟更快耗完这一帧</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="controls" id="anim-compare">
+      <span class="anim-controls">
+        <button type="button" class="primary" data-act="play">播放</button>
+        <button type="button" data-act="pause">暂停</button>
+        <button type="button" data-act="prev">上一步</button>
+        <button type="button" data-act="next">下一步</button>
+        <button type="button" data-act="reset">重置</button>
+        <span class="anim-step" data-step></span>
+      </span>
+      <span class="cap" id="cap">点播放：同一条「夹→运」路径，看生成结果与 100Hz 下发光标。</span>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:var(--fine)"></i>夹放细段</span>
+      <span><i style="background:var(--a)"></i>搬运大段</span>
+      <span><i style="background:var(--tick)"></i>下发光标（墙钟）</span>
+      <span><i style="background:var(--b)"></i>模型帧 / 路点</span>
+    </div>
+
+    <div class="grid">
+      <div class="pane">
+        <h3>A · realtime-vla-v2</h3>
+        <p class="sub">生成：重采样路点 → 均匀 dt_ref　｜　下发：均匀吃进度</p>
+        <svg class="stage" id="svg-v2" viewBox="0 0 440 260" role="img" aria-label="v2 生成与下发"></svg>
+      </div>
+      <div class="pane">
+        <h3>B · fasterVLA</h3>
+        <p class="sub">生成：路点不动 + step_dt　｜　下发：墙钟按 step_dt 吃进度</p>
+        <svg class="stage" id="svg-fv" viewBox="0 0 440 260" role="img" aria-label="fasterVLA 生成与下发"></svg>
+      </div>
+    </div>
+
+    <h2>一句话抓住差别</h2>
+    <div class="card">
+      <ul>
+        <li><strong>都有「下发重采样」</strong>：100Hz 从连续计划取一点 —— 这不是分歧。</li>
+        <li><strong>v2 多了「生成重采样」</strong>：先改路径形状（均匀时间栅格上的几何），再均匀播。</li>
+        <li><strong>fasterVLA 改的是时钟</strong>：几何帧还在，细帧 <code>dt</code> 短 → 同等墙钟内细帧被快速翻过 → 夹放冲。</li>
+        <li>所以「对齐控制频率」本身没问题；问题出在 fasterVLA 把加速度项的解直接写进了<strong>播放时钟</strong>，而 v2 写进了<strong>路径采样</strong>。</li>
+      </ul>
+    </div>
+
+    <p class="footer">
+      相关：<a href="./2026-11-24-qp-grip-rate-inversion.html">夹放不稳问题页</a> ·
+      代码 v2 <code>optimizer.re_allocate</code> · fasterVLA <code>PlanBuffer.advance</code>
+    </p>
+  </div>
+
+  <script src="./anim-player.js"></script>
+  <script>
+    (function () {
+      const cap = document.getElementById("cap");
+
+      const N = 10;
+      const sPolicy = [0.00, 0.08, 0.16, 0.22, 0.28, 0.34, 0.55, 0.72, 0.88, 1.00];
+      function isFine(i) { return i >= 3 && i <= 5; }
+
+      const sV2 = [0.00, 0.12, 0.24, 0.33, 0.42, 0.52, 0.62, 0.74, 0.87, 1.00];
+
+      const dtFV = [1.0, 1.0, 1.0, 0.55, 0.50, 0.55, 1.35, 1.30, 1.25, 1.20];
+      const cumFV = [0];
+      dtFV.forEach(function (d, i) { if (i < N - 1) cumFV.push(cumFV[i] + d); });
+      const Tfv = cumFV[N - 1];
+
+      function drawPanel(svg, kind) {
+        svg.innerHTML = "";
+        const ns = "http://www.w3.org/2000/svg";
+        const add = function (tag, attrs) {
+          const el = document.createElementNS(ns, tag);
+          Object.entries(attrs).forEach(function (kv) { el.setAttribute(kv[0], kv[1]); });
+          svg.appendChild(el);
+          return el;
+        };
+        add("text", { x: 12, y: 18, fill: "#8b93a7", "font-family": "IBM Plex Mono", "font-size": "11" })
+          .textContent = "生成结果（路点）";
+        add("text", { x: 12, y: 140, fill: "#8b93a7", "font-family": "IBM Plex Mono", "font-size": "11" })
+          .textContent = "下发：墙钟 → 命令（100Hz 光标）";
+
+        add("line", { x1: 30, y1: 70, x2: 410, y2: 70, stroke: "#2c3448", "stroke-width": "2" });
+        add("rect", { x: 30 + 0.22 * 380, y: 52, width: 0.12 * 380, height: 36, fill: "rgba(224,137,60,0.15)", rx: "4" });
+
+        const pts = kind === "v2" ? sV2 : sPolicy;
+        pts.forEach(function (s, i) {
+          const x = 30 + s * 380;
+          const fine = kind === "v2" ? (s > 0.28 && s < 0.45) : isFine(i);
+          add("circle", {
+            cx: x, cy: 70, r: 5,
+            fill: fine ? "#e0893c" : "#3db89a",
+            class: "dot-" + kind + "-" + i,
+          });
+        });
+
+        add("line", { x1: 30, y1: 190, x2: 410, y2: 190, stroke: "#2c3448", "stroke-width": "2" });
+        if (kind === "fv") {
+          for (let i = 0; i < N - 1; i++) {
+            const x0 = 30 + (cumFV[i] / Tfv) * 380;
+            const x1 = 30 + (cumFV[i + 1] / Tfv) * 380;
+            add("rect", {
+              x: x0, y: 178, width: Math.max(2, x1 - x0 - 1), height: 24, rx: "2",
+              fill: isFine(i) ? "rgba(224,137,60,0.35)" : "rgba(91,159,212,0.25)",
+              stroke: "#2c3448",
+            });
+          }
+        } else {
+          for (let i = 0; i < N - 1; i++) {
+            const x0 = 30 + (i / (N - 1)) * 380;
+            const x1 = 30 + ((i + 1) / (N - 1)) * 380;
+            add("rect", {
+              x: x0, y: 178, width: Math.max(2, x1 - x0 - 1), height: 24, rx: "2",
+              fill: "rgba(91,159,212,0.22)", stroke: "#2c3448",
+            });
+          }
+        }
+
+        add("circle", { cx: 30, cy: 190, r: 6, fill: "#f0c14a", class: "cur-" + kind });
+        add("line", {
+          x1: 30, y1: 70, x2: 30, y2: 190,
+          stroke: "#f0c14a", "stroke-width": "1.5", "stroke-dasharray": "3 3",
+          class: "link-" + kind,
+        });
+        add("circle", {
+          cx: 30, cy: 70, r: 7, fill: "none", stroke: "#f0c14a", "stroke-width": "2",
+          class: "mark-" + kind,
+        });
+
+        add("text", {
+          x: 12, y: 248, fill: "#8b93a7", "font-family": "IBM Plex Mono", "font-size": "11",
+          class: "lab-" + kind,
+        }).textContent = kind === "v2"
+          ? "路点已被拧到均匀时间栅格"
+          : "路点仍是政策帧；细段 step_dt 更短";
+      }
+
+      drawPanel(document.getElementById("svg-v2"), "v2");
+      drawPanel(document.getElementById("svg-fv"), "fv");
+
+      function lerp(a, b, t) { return a + (b - a) * t; }
+
+      function samplePath(sArr, u) {
+        const x = u * (sArr.length - 1);
+        const i = Math.min(Math.floor(x), sArr.length - 2);
+        const f = x - i;
+        return lerp(sArr[i], sArr[i + 1], f);
+      }
+
+      function progressFV(tau) {
+        const t = tau * Tfv;
+        let i = 0;
+        while (i < N - 2 && cumFV[i + 1] <= t) i++;
+        const seg = dtFV[i];
+        const f = seg > 0 ? (t - cumFV[i]) / seg : 0;
+        return i + Math.min(1, Math.max(0, f));
+      }
+
+      function setCursor(kind, wallU, pathS) {
+        const xTime = 30 + wallU * 380;
+        const xPath = 30 + pathS * 380;
+        document.querySelector(".cur-" + kind).setAttribute("cx", xTime);
+        const link = document.querySelector(".link-" + kind);
+        link.setAttribute("x1", xPath);
+        link.setAttribute("x2", xTime);
+        document.querySelector(".mark-" + kind).setAttribute("cx", xPath);
+      }
+
+      function applyWall(u, text) {
+        const pV2 = u * (N - 1);
+        setCursor("v2", u, samplePath(sV2, pV2 / (N - 1)));
+        const pF = progressFV(u);
+        setCursor("fv", u, samplePath(sPolicy, pF / (N - 1)));
+        cap.textContent = text;
+      }
+
+      const keyframes = [
+        { u: 0, text: "① 起点：同一条「夹→运」路径，两边墙钟光标对齐" },
+        { u: 0.2, text: "② 接近夹放区：注意两边路径光标开始分叉" },
+        { u: 0.35, text: "③ 进入夹放：fasterVLA 细段 step_dt 短 → 路径光标冲得快" },
+        { u: 0.5, text: "④ 夹放中段：v2 路点更稀，均匀时间下几何速度被拉平" },
+        { u: 0.7, text: "⑤ 进入搬运：fasterVLA 长 step_dt → 路径光标变慢" },
+        { u: 0.88, text: "⑥ 接近终点：两边墙钟仍同步，路径进度已不同" },
+        { u: 1, text: "⑦ 结论：下发都是墙钟取样；v2 改几何，fasterVLA 改时钟" },
+      ];
+
+      AnimStepPlayer({
+        root: document.getElementById("anim-compare"),
+        intervalMs: 1100,
+        steps: keyframes.map(function (kf) {
+          return function () { applyWall(kf.u, kf.text); };
+        }),
+      }).go(0);
+    })();
+  </script>
+</body>
+</html>

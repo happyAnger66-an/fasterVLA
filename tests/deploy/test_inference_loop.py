@@ -17,7 +17,7 @@ from fastervla.deploy.backends.mock import MockBackend
 from fastervla.deploy.client.inference_loop import InferenceLoop, InferenceLoopConfig
 from fastervla.deploy.client.io.mock_sim import MockRobotPlatform
 from fastervla.deploy.client.plan_buffer import PlanBuffer
-from fastervla.deploy.postprocess.retime import UniformRetimer
+from fastervla.deploy.postprocess.retime import TimeAxisQP, TimeAxisQPConfig, UniformRetimer
 
 
 class DelayedBackend:
@@ -323,3 +323,35 @@ def test_inference_loop_hold_gripper_freezes_command_grippers(tmp_path) -> None:
     assert float(np.max(dgrip)) < 1e-9
     assert np.allclose(grip, grip[0:1], atol=1e-9)
     plat.close()
+
+
+class _SpyQP(TimeAxisQP):
+    def __init__(self, cfg: TimeAxisQPConfig) -> None:
+        super().__init__(cfg)
+        self.locks: list[Any] = []
+
+    def retime(self, chunk, *, lock_durations=None, **kw):  # type: ignore[override]
+        self.locks.append(None if lock_durations is None else np.array(lock_durations))
+        return super().retime(chunk, lock_durations=lock_durations, **kw)
+
+
+# 用例: qp_prefix_lock 时，新块前 d̂+extra 帧时长取自旧计划；关闭时不锁
+# 参数: prefix_lock
+@pytest.mark.parametrize("prefix_lock", [False, True])
+def test_inference_loop_qp_prefix_lock(prefix_lock: bool) -> None:
+    loop, _backend, plat = _loop(delay_s=0.06, kappa=1.2, duration_s=1.0)
+    spy = _SpyQP(TimeAxisQPConfig(policy_fps=30.0, kappa=1.2, kappa_max=1.5))
+    loop.retimer = spy
+    loop.config.qp_prefix_lock = prefix_lock
+    loop.config.qp_lock_extra_frames = 2
+    loop.run()
+    plat.close()
+    assert spy.locks
+    if not prefix_lock:
+        assert all(lk is None for lk in spy.locks)
+        return
+    locked = [lk for lk in spy.locks if lk is not None]
+    assert locked
+    # Seed plan is uniform κ=1.2 → first lock copies its 1/36 s durations.
+    np.testing.assert_allclose(locked[0], 1.0 / 36.0, atol=1e-12)
+    assert all(len(lk) >= 3 for lk in locked)

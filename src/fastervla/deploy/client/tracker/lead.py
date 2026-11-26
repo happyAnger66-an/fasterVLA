@@ -15,12 +15,18 @@ class LeadTrackerConfig:
     max_lead_rad: float = 0.06
     lead_smooth_tau_s: float = 0.040
     hold_during_blend: bool = True
+    # When right gripper command is closed (>-threshold), tighten lead clip to
+    # cut carry-phase saturation / sway. None disables.
+    closed_grip_max_lead_rad: float | None = None
+    # Matches ball_cycles.GRIP_CLOSED: command21[..., 20] > threshold ⇒ closed.
+    grip_closed_threshold: float = -0.39
 
 
 class LeadTracker:
     """Apply clipped lead on command dims [5:19] (14-DoF arms)."""
 
     ARM_SLICE = slice(5, 19)
+    GRIP_R = 20  # command21 right gripper
 
     def __init__(self, config: LeadTrackerConfig | None = None) -> None:
         self.config = config or LeadTrackerConfig()
@@ -43,12 +49,17 @@ class LeadTracker:
         v_ahead = np.asarray(ref_vel, dtype=np.float64).reshape(14)
         cfg = self.config
 
+        max_lead = float(cfg.max_lead_rad)
+        if cfg.closed_grip_max_lead_rad is not None:
+            if float(ref[self.GRIP_R]) > float(cfg.grip_closed_threshold):
+                max_lead = min(max_lead, float(cfg.closed_grip_max_lead_rad))
+
         if cfg.hold_during_blend and blending:
             lead = np.zeros(14, dtype=np.float64)
         else:
             desired = r_ahead + cfg.tau_s * v_ahead
             lead = cfg.gain * (desired - ref[self.ARM_SLICE])
-            lead = np.clip(lead, -cfg.max_lead_rad, cfg.max_lead_rad)
+            lead = np.clip(lead, -max_lead, max_lead)
 
         if (
             cfg.lead_smooth_tau_s > 0.0

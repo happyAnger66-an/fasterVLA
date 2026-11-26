@@ -1,0 +1,53 @@
+# h7 · 门控 κ=1.4 + Lead2 + 接触加严（M4；tracker 优胜=Lead2，非 Lead3/MPC）
+# contact 1.0 / 窗 14；搬运上限仍 1.5（不过门不抬 transport）
+#   fastervla-deploy run --config configs/deploy/h7_k1p4_qp_phase_lead2_contact.yaml \
+#     --mode execute --duration-s 180 --tag M4_k14
+
+meta:
+  name: h7_k1p4_qp_phase_lead2_contact
+  robot_aid: G2A0205C800352
+  machine: h7
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.4
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: qp
+  contact_kappa: 1.0
+  contact_window_frames: 14
+  transport_kappa_max: 1.5
+  prefix_lock: true
+  lock_extra_frames: 2
+
+inference:
+  tracker: lead
+  execution_prefix_frames: 4
+  execution_buffer_frames: 4
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+lead_tracker:
+  tau_s: 0.09
+  gain: 0.35
+  max_lead_rad: 0.10
+  lead_smooth_tau_s: 0.040
+  hold_during_blend: true
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 192.168.112.212
+  discovery_uri: http://192.168.112.212:2379

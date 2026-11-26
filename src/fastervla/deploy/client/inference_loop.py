@@ -65,6 +65,14 @@ class InferenceLoopConfig:
     execution_buffer_frames: int = 4
     use_lead_tracker: bool = True
     tracker: str = "lead"  # none | lead | mpc
+    # LeadTrackerConfig defaults (soft-lead A/B via recipe `lead_tracker:`).
+    lead_tau_s: float = 0.057
+    lead_gain: float = 0.25
+    lead_max_lead_rad: float = 0.06
+    lead_smooth_tau_s: float = 0.040
+    lead_hold_during_blend: bool = True
+    # None → LeadTrackerConfig default (disabled). Tighten lead while grip closed.
+    lead_closed_grip_max_lead_rad: float | None = None
     # If True, latch grippers to first measured and ignore policy gripper (chatter A/B).
     hold_gripper: bool = False
     track_warn_threshold_rad: float = 0.10
@@ -73,6 +81,10 @@ class InferenceLoopConfig:
     arm_chunk_filter_cutoff_hz: float = 3.0
     arm_chunk_filter_context_frames: int = 10
     arm_interpolation: str = "linear"  # linear | pchip
+    # TimeAxisQP only: lock the new chunk's first d_hat + extra frame durations
+    # to the old plan's (same waypoints via RTC prefix) so merges keep rate.
+    qp_prefix_lock: bool = False
+    qp_lock_extra_frames: int = 2
 
     def __post_init__(self) -> None:
         if not (self.kappa_min <= self.kappa <= self.kappa_max):
@@ -87,6 +99,14 @@ class InferenceLoopConfig:
             raise ValueError("execution_prefix_frames must be >= 0")
         if int(self.execution_buffer_frames) < 0:
             raise ValueError("execution_buffer_frames must be >= 0")
+        if float(self.lead_tau_s) < 0:
+            raise ValueError("lead_tau_s must be >= 0")
+        if float(self.lead_gain) < 0:
+            raise ValueError("lead_gain must be >= 0")
+        if float(self.lead_max_lead_rad) <= 0:
+            raise ValueError("lead_max_lead_rad must be > 0")
+        if float(self.lead_smooth_tau_s) < 0:
+            raise ValueError("lead_smooth_tau_s must be >= 0")
         filt = str(self.arm_chunk_filter or "none").lower()
         if filt not in ("none", "zero_phase_dct", "zero_phase_dct_cross"):
             raise ValueError(f"unknown arm_chunk_filter {self.arm_chunk_filter!r}")
@@ -99,6 +119,20 @@ class InferenceLoopConfig:
         if interp not in ("linear", "pchip"):
             raise ValueError(f"unknown arm_interpolation {self.arm_interpolation!r}")
         self.arm_interpolation = interp
+
+    def lead_tracker_config(self) -> LeadTrackerConfig:
+        return LeadTrackerConfig(
+            tau_s=float(self.lead_tau_s),
+            gain=float(self.lead_gain),
+            max_lead_rad=float(self.lead_max_lead_rad),
+            lead_smooth_tau_s=float(self.lead_smooth_tau_s),
+            hold_during_blend=bool(self.lead_hold_during_blend),
+            closed_grip_max_lead_rad=(
+                None
+                if self.lead_closed_grip_max_lead_rad is None
+                else float(self.lead_closed_grip_max_lead_rad)
+            ),
+        )
 
 
 @dataclass
@@ -182,12 +216,13 @@ class InferenceLoop:
         tracker = self.config.tracker
         if self._mpc is not None:
             tracker = "mpc"
+        lead_cfg = self.config.lead_tracker_config()
         if lead_tracker is not None:
             self._lead = lead_tracker
         elif tracker == "lead" or (tracker == "mpc" and self._mpc is None):
-            self._lead = LeadTracker(LeadTrackerConfig())
+            self._lead = LeadTracker(lead_cfg)
         elif self.config.use_lead_tracker and tracker != "none":
-            self._lead = LeadTracker(LeadTrackerConfig())
+            self._lead = LeadTracker(lead_cfg)
         else:
             self._lead = None
         if tracker == "mpc" and self._mpc is None:
@@ -208,7 +243,7 @@ class InferenceLoop:
                     mpc_kw["q_max"] = hi21[5:19].copy()
             self._mpc = AcadosMpcTracker(
                 AcadosMpcTrackerConfig(**mpc_kw),
-                lead=self._lead or LeadTracker(LeadTrackerConfig()),
+                lead=self._lead or LeadTracker(lead_cfg),
             )
         if tracker == "mpc" and self._estimator is None:
             self._estimator = LagStateEstimator(
@@ -241,12 +276,20 @@ class InferenceLoop:
             out.meta["arm_chunk_filter"] = meta
         return out, meta
 
-    def _retime_chunk(self, chunk: Chunk, *, state: np.ndarray) -> TimedChunk:
+    def _retime_chunk(
+        self,
+        chunk: Chunk,
+        *,
+        state: np.ndarray,
+        lock_durations: np.ndarray | None = None,
+    ) -> TimedChunk:
         retimer = self.retimer
         if isinstance(retimer, TimeAxisQP):
-            lock = None
-            # Prefix lock from PlanBuffer leftover timing is F3 follow-up; QP
-            # still runs without lock (L1 merge uses actual progress).
+            lock = (
+                lock_durations
+                if self.config.qp_prefix_lock and lock_durations is not None and len(lock_durations)
+                else None
+            )
             return retimer.retime(
                 chunk,
                 state=state,
@@ -277,6 +320,11 @@ class InferenceLoop:
                 rtc_mode=cfg.rtc_mode,
                 use_lead_tracker=bool(self._lead is not None),
                 tracker=cfg.tracker,
+                lead_tau_s=float(cfg.lead_tau_s),
+                lead_gain=float(cfg.lead_gain),
+                lead_max_lead_rad=float(cfg.lead_max_lead_rad),
+                lead_smooth_tau_s=float(cfg.lead_smooth_tau_s),
+                lead_hold_during_blend=bool(cfg.lead_hold_during_blend),
                 hold_gripper=bool(cfg.hold_gripper),
                 execution_prefix_frames=int(cfg.execution_prefix_frames),
                 execution_buffer_frames=int(cfg.execution_buffer_frames),
@@ -285,7 +333,19 @@ class InferenceLoop:
                 arm_interpolation=str(cfg.arm_interpolation),
                 mpc_has_acados=bool(self._mpc.has_acados) if self._mpc else False,
                 horizon=cfg.horizon,
+                retimer="qp" if isinstance(self.retimer, TimeAxisQP) else "uniform",
+                qp_prefix_lock=bool(cfg.qp_prefix_lock),
+                qp_lock_extra_frames=int(cfg.qp_lock_extra_frames),
             )
+            if isinstance(self.retimer, TimeAxisQP):
+                qc = self.retimer.config
+                self.recorder.set_experiment(
+                    qp_contact_kappa=qc.contact_kappa,
+                    qp_contact_window_frames=int(qc.contact_window_frames),
+                    qp_transport_kappa_max=qc.transport_kappa_max,
+                    qp_dwell_kappa_max=qc.dwell_kappa_max,
+                    qp_dwell_step_rad=float(qc.dwell_step_rad),
+                )
             self.recorder.track_warn_threshold_rad = float(cfg.track_warn_threshold_rad)
 
         def _latency_hat() -> float:
@@ -348,6 +408,7 @@ class InferenceLoop:
             prefix = self.plan_buffer.prefix(max(1, d_hat))
             # Snapshot old plan for overlap / guided gap before merge.
             old_wp = self.plan_buffer.waypoints.copy()
+            old_dt = self.plan_buffer.step_dt.copy()
             old_progress = float(self.plan_buffer.progress)
 
             st = self.platform.state.read()
@@ -403,8 +464,12 @@ class InferenceLoop:
             self._r2r_ms.append(r2r_ms)
             raw_chunk = chunks[0]
             filtered_chunk, _filt_meta = self._filter_chunk(raw_chunk)
+            anchor = int(prefix.anchor_step)
+            n_lock = max(0, d_hat) + int(cfg.qp_lock_extra_frames)
             timed = self._retime_chunk(
-                filtered_chunk, state=np.asarray(obs.state, dtype=np.float64)
+                filtered_chunk,
+                state=np.asarray(obs.state, dtype=np.float64),
+                lock_durations=old_dt[anchor : anchor + n_lock],
             )
             ok = self.plan_buffer.merge(timed, anchor_step=prefix.anchor_step)
             t_accept = time.monotonic()
@@ -549,8 +614,11 @@ class InferenceLoop:
                 )
                 reference21 = np.asarray(ref_cmd.q_des, dtype=np.float64)
                 tracker_status = TRACKER_PASSTHROUGH
+                t_read0 = time.monotonic()
                 st_now = self.platform.state.read()
+                state_read_ms = (time.monotonic() - t_read0) * 1000.0
                 measured = np.asarray(st_now.q, dtype=np.float64)
+                t_trk0 = time.monotonic()
                 if self._mpc is not None and self._estimator is not None and not empty:
                     lo, hi = ARM_POLICY_SLICE
                     arm_meas = measured[lo:hi]
@@ -594,6 +662,7 @@ class InferenceLoop:
                     tracker_status = TRACKER_LEAD
                 else:
                     command21 = reference21.copy()
+                tracker_solve_ms = (time.monotonic() - t_trk0) * 1000.0
 
                 if self.config.hold_gripper:
                     # Command dims [-2:] are left/right grippers (policy 22,23).
@@ -604,18 +673,23 @@ class InferenceLoop:
                     command21[-2:] = self._grip_hold
 
                 # Saturate to platform soft limits before send (MPC/Lead may lead past).
+                sat_excess = 0.0
                 jl = getattr(self.platform, "joint_limits", None)
                 if callable(jl):
                     lo21, hi21 = jl()
-                    command21 = np.clip(
+                    clipped = np.clip(
                         command21,
                         np.asarray(lo21, dtype=np.float64),
                         np.asarray(hi21, dtype=np.float64),
                     )
+                    sat_excess = float(np.max(np.abs(command21 - clipped)))
+                    command21 = clipped
 
                 send_cmd = ref_cmd
                 send_cmd.q_des = command21.copy()
+                t_send0 = time.monotonic()
                 self.platform.command.send(send_cmd)
+                send_ms = (time.monotonic() - t_send0) * 1000.0
                 summary.control_steps += 1
                 with shared_lock:
                     shared["last_command21"] = command21.copy()
@@ -640,6 +714,16 @@ class InferenceLoop:
                         action_frame=int(np.floor(self.plan_buffer.progress)),
                         accepted_prediction=int(self.plan_buffer.plan_id),
                         servo_tick_ms=servo_ms,
+                        aux={
+                            "measured_velocity24": st_now.qd,
+                            "measured_effort24": st_now.extras.get("effort"),
+                            "state_stamp_ms": st_now.extras.get("stamp_ms"),
+                            "state_wall_ms": st_now.extras.get("wall_ms"),
+                            "state_read_ms": state_read_ms,
+                            "send_ms": send_ms,
+                            "tracker_solve_ms": tracker_solve_ms,
+                            "sat_excess_rad": sat_excess,
+                        },
                     )
 
                 next_tick += dt

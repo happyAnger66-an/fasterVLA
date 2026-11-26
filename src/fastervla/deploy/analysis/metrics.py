@@ -383,6 +383,7 @@ def wide_row(summary: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "run_id": summary.get("run_id"),
+        "tag": exp.get("tag"),
         "kappa": g(exp, speed, key="kappa"),
         "tracker": exp.get("tracker"),
         "prefix": exp.get("prefix_frames") or exp.get("prefix"),

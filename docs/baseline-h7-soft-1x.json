@@ -1,0 +1,78 @@
+{
+  "name": "h7_soft_1x_baseline",
+  "date": "2026-11-24",
+  "machine": "h7",
+  "config": {
+    "kappa": 1.0,
+    "tracker": "lead",
+    "prefix_frames": 4,
+    "buffer_frames": 4,
+    "arm_chunk_filter": "zero_phase_dct",
+    "arm_filter_cutoff_hz": 3.0,
+    "arm_interp": "pchip",
+    "retimer": "uniform",
+    "hold_gripper": false,
+    "recipe": "configs/deploy/h7_soft_1x.yaml"
+  },
+  "runs": [
+    {
+      "run_id": "20261124-212306-cdded1",
+      "role": "baseline",
+      "note": "first execute; place hesitation; grip meas all-zero",
+      "dur_s": 45.56,
+      "progress_wall_fps": 28.604,
+      "merge_hz": 4.631,
+      "cmd_track_p50_mrad": 28.93,
+      "cmd_track_p95_mrad": 189.90,
+      "frac_track_gt_100mrad": 0.203,
+      "handoff_jump_p95_mrad": 448.46,
+      "cmd_spd_p95": 2.199,
+      "cmd_hf3_mrad": 2.478,
+      "rev_per_s": 0.351,
+      "empty": 0,
+      "starved": 0,
+      "rem_min": 19.9,
+      "r2r_p95_ms": 82.7,
+      "grip_meas_ok": false
+    },
+    {
+      "run_id": "20261124-213252-1f6b6d",
+      "role": "baseline_primary",
+      "note": "place OK; grip end_state read restored; preferred feel",
+      "dur_s": 58.97,
+      "progress_wall_fps": 28.613,
+      "merge_hz": 4.613,
+      "cmd_track_p50_mrad": 23.47,
+      "cmd_track_p95_mrad": 254.97,
+      "frac_track_gt_100mrad": 0.161,
+      "handoff_jump_p95_mrad": 677.32,
+      "cmd_spd_p95": 2.761,
+      "cmd_hf3_mrad": 2.168,
+      "rev_per_s": 0.188,
+      "empty": 0,
+      "starved": 0,
+      "rem_min": 20.1,
+      "r2r_p95_ms": 83.0,
+      "grip_meas_ok": true
+    }
+  ],
+  "aggregate": {
+    "n": 2,
+    "progress_wall_fps_mean": 28.609,
+    "merge_hz_mean": 4.622,
+    "cmd_track_p50_mrad_mean": 26.2,
+    "cmd_track_p95_mrad_mean": 222.4,
+    "frac_track_gt_100mrad_mean": 0.182,
+    "handoff_jump_p95_mrad_mean": 562.9,
+    "cmd_spd_p95_mean": 2.48,
+    "cmd_spd_p95_range": [2.20, 2.76],
+    "cmd_hf3_mrad_mean": 2.32,
+    "empty_starved": [0, 0],
+    "rem_min_mean": 20.0,
+    "r2r_p95_ms_mean": 82.9
+  },
+  "excluded": [
+    {"run_id": "20261124-212108-047d0f", "reason": "short; hold_gripper=true"},
+    {"run_id": "20261124-212831-64fc65", "reason": "transition; grip meas still zero"}
+  ]
+}

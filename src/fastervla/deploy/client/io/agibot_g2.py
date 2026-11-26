@@ -6,6 +6,7 @@ Unit tests inject a fake ``robot`` object. A thin wrapper can map the real
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -190,18 +191,29 @@ class AgibotG2Platform(RobotPlatform):
 
         # Build 24-d policy state: 22 joints + 2 grippers (by end_states order).
         q = np.zeros(G2_ACTION_DIM, dtype=np.float64)
-        name_to_pos = {j.name: float(j.position) for j in joints}
+        qd = np.zeros(G2_ACTION_DIM, dtype=np.float64)
+        effort = np.full(G2_ACTION_DIM, np.nan, dtype=np.float64)
+        by_name = {j.name: j for j in joints}
         for i, name in enumerate(self.config.expected_joint_names):
-            q[i] = name_to_pos[name]
+            j = by_name[name]
+            q[i] = float(j.position)
+            v = float(getattr(j, "velocity", 0.0) or 0.0)
+            qd[i] = v if np.isfinite(v) else 0.0
+            effort[i] = float(getattr(j, "effort", np.nan))
         if len(status.end_states) >= 2:
             q[22] = float(status.end_states[0].position)
             q[23] = float(status.end_states[1].position)
 
         return RobotState(
             q=q,
-            qd=np.zeros(G2_ACTION_DIM, dtype=np.float64),
+            qd=qd,
             timestamp=now,
-            extras={"stamp_ms": stamp},
+            extras={
+                "stamp_ms": stamp,
+                "wall_ms": time.time() * 1000.0,
+                "read_ms": elapsed * 1000.0,
+                "effort": effort,
+            },
         )
 
     def _read_images(self) -> dict[str, bytes]:

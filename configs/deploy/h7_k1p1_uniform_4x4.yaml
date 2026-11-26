@@ -1,0 +1,39 @@
+# h7 · κ=1.1 · uniform · 4+4 · ZP + pchip
+#   fastervla-deploy run --config configs/deploy/h7_k1p1_uniform_4x4.yaml --mode execute
+
+meta:
+  name: h7_k1p1_uniform_4x4
+  robot_aid: G2A0205C800352
+  machine: h7
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.1
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: uniform
+
+inference:
+  tracker: lead
+  execution_prefix_frames: 4
+  execution_buffer_frames: 4
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 192.168.112.212
+  discovery_uri: http://192.168.112.212:2379

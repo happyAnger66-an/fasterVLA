@@ -29,6 +29,23 @@ TRACKER_LEAD = 1
 TRACKER_MPC = 2
 TRACKER_FALLBACK = 3
 
+# Optional per-tick columns (name, width, dtype); width 0 = scalar. Missing → NaN.
+AUX_TICK_COLUMNS: tuple[tuple[str, int, Any], ...] = (
+    ("measured_velocity24", 24, np.float64),
+    ("measured_effort24", 24, np.float32),
+    ("state_stamp_ms", 0, np.float64),
+    ("state_wall_ms", 0, np.float64),
+    ("state_read_ms", 0, np.float32),
+    ("send_ms", 0, np.float32),
+    ("tracker_solve_ms", 0, np.float32),
+    ("sat_excess_rad", 0, np.float32),
+)
+
+
+def _aux_empty(n: int, width: int, dtype: Any) -> np.ndarray:
+    shape = (n, width) if width else (n,)
+    return np.full(shape, np.nan, dtype=dtype)
+
 _PRED_SCALAR_KEYS = (
     "requested_monotonic_s",
     "ready_monotonic_s",
@@ -75,13 +92,48 @@ def _atomic_savez(path: Path, **arrays: Any) -> None:
     temporary.replace(path)
 
 
-def make_run_dir(results_dir: str | Path, *, prefix: str = "robot-live") -> Path:
-    """Create ``results_dir/robot-live-<stamp>-<hex>/`` for one run."""
+def sanitize_run_label(label: str, *, max_len: int = 64) -> str:
+    """Filesystem-safe label for ``--tag`` / ``--run-id`` (alnum + ._+-)."""
+    raw = str(label).strip().replace(" ", "_")
+    if not raw:
+        raise ValueError("empty run label")
+    out: list[str] = []
+    for ch in raw:
+        if ch.isalnum() or ch in "._+-":
+            out.append(ch)
+        elif ch in "/\\:":
+            out.append("-")
+        else:
+            out.append("_")
+    cleaned = "".join(out).strip("._-")
+    if not cleaned:
+        raise ValueError(f"run label {label!r} sanitizes to empty")
+    return cleaned[: int(max_len)]
+
+
+def make_run_dir(
+    results_dir: str | Path,
+    *,
+    prefix: str = "robot-live",
+    tag: str | None = None,
+    run_id: str | None = None,
+) -> Path:
+    """Create ``results_dir/robot-live-<id>/`` for one run.
+
+    - default: ``robot-live-<YYYYMMDD-HHMMSS>-<hex6>``
+    - ``--tag``: append ``-<tag>`` after the auto id
+    - ``--run-id``: use as the id (unique; fails if the directory exists)
+    """
     root = Path(results_dir)
     root.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    run_id = f"{stamp}-{uuid.uuid4().hex[:6]}"
-    path = root / f"{prefix}-{run_id}"
+    if run_id:
+        rid = sanitize_run_label(run_id)
+    else:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        rid = f"{stamp}-{uuid.uuid4().hex[:6]}"
+        if tag:
+            rid = f"{rid}-{sanitize_run_label(tag)}"
+    path = root / f"{prefix}-{rid}"
     path.mkdir(parents=True, exist_ok=False)
     return path
 
@@ -144,6 +196,7 @@ class _TickBank:
     servo_tick_ms: np.ndarray = field(init=False)
     action_frame: np.ndarray = field(init=False)
     accepted_prediction: np.ndarray = field(init=False)
+    aux: dict[str, np.ndarray] = field(init=False)
     chunks: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -161,6 +214,7 @@ class _TickBank:
         self.servo_tick_ms = np.empty(cap, dtype=np.float32)
         self.action_frame = np.empty(cap, dtype=np.int64)
         self.accepted_prediction = np.empty(cap, dtype=np.int64)
+        self.aux = {name: _aux_empty(cap, w, dt) for name, w, dt in AUX_TICK_COLUMNS}
 
     def reset(self) -> None:
         self.n = 0
@@ -183,6 +237,7 @@ class _TickBank:
             "servo_tick_ms": self.servo_tick_ms[:n].copy(),
             "action_frame": self.action_frame[:n].copy(),
             "accepted_prediction": self.accepted_prediction[:n].copy(),
+            "aux": {k: v[:n].copy() for k, v in self.aux.items()},
             "chunks": list(self.chunks),
         }
 
@@ -318,8 +373,12 @@ class TraceRecorder:
         servo_tick_ms: float = float("nan"),
         action_frame: int = -1,
         accepted_prediction: int = -1,
+        aux: dict[str, Any] | None = None,
     ) -> None:
-        """Copy one control sample into the active bank. Never touches disk."""
+        """Copy one control sample into the active bank. Never touches disk.
+
+        ``aux`` fills optional ``AUX_TICK_COLUMNS``; absent keys are stored as NaN.
+        """
         measured = np.asarray(measured24, dtype=np.float64).reshape(-1)
         reference = np.asarray(reference21, dtype=np.float64).reshape(-1)
         command = np.asarray(command21, dtype=np.float64).reshape(-1)
@@ -363,6 +422,9 @@ class TraceRecorder:
             bank.servo_tick_ms[i] = float(servo_tick_ms)
             bank.action_frame[i] = int(action_frame)
             bank.accepted_prediction[i] = int(accepted_prediction)
+            for name, col in bank.aux.items():
+                v = None if aux is None else aux.get(name)
+                col[i] = np.nan if v is None else v
             bank.n = i + 1
             self._total_ticks += 1
 
@@ -537,6 +599,13 @@ class TraceRecorder:
             servo_parts = [prev_ctl["servo_tick_ms"]] if prev_ctl else []
             frame_parts = [prev_ctl["action_frame"]] if prev_ctl else []
             ap_parts = [prev_ctl["accepted_prediction"]] if prev_ctl else []
+            n_prev = int(prev_ctl["monotonic_s"].shape[0]) if prev_ctl else 0
+            aux_parts: dict[str, list[np.ndarray]] = {}
+            for name, w, dt in AUX_TICK_COLUMNS:
+                if prev_ctl and name in prev_ctl:
+                    aux_parts[name] = [np.asarray(prev_ctl[name], dtype=dt)]
+                else:
+                    aux_parts[name] = [_aux_empty(n_prev, w, dt)] if prev_ctl else []
 
             all_chunks: list[dict[str, Any]] = []
             if prev_pred is not None:
@@ -556,6 +625,11 @@ class TraceRecorder:
                     servo_parts.append(seg["servo_tick_ms"])
                     frame_parts.append(seg["action_frame"])
                     ap_parts.append(seg["accepted_prediction"])
+                    for name, w, dt in AUX_TICK_COLUMNS:
+                        seg_aux = seg.get("aux", {}).get(name)
+                        aux_parts[name].append(
+                            seg_aux if seg_aux is not None else _aux_empty(seg["n"], w, dt)
+                        )
                 all_chunks.extend(seg["chunks"])
 
             if mono_parts:
@@ -586,6 +660,15 @@ class TraceRecorder:
                 accepted_prediction = np.empty(0, dtype=np.int64)
 
             n = int(mono.shape[0])
+            aux_arrays = {
+                name: (
+                    np.concatenate(aux_parts[name], axis=0)
+                    if aux_parts[name]
+                    else _aux_empty(0, w, dt)
+                )
+                for name, w, dt in AUX_TICK_COLUMNS
+            }
+            arm_vel = np.nan_to_num(aux_arrays["measured_velocity24"][:, 8:22])
             _atomic_savez(
                 self.out_dir / "control_trace.npz",
                 monotonic_s=mono,
@@ -603,7 +686,8 @@ class TraceRecorder:
                 accepted_prediction=accepted_prediction,
                 controller_feedback24=measured,
                 requested_target21=command,
-                arm_velocity14=np.zeros((n, 14), dtype=np.float64),
+                arm_velocity14=arm_vel,
+                **aux_arrays,
             )
 
             self._write_prediction(all_chunks)

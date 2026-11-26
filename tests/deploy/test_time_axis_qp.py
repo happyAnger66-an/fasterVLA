@@ -15,6 +15,7 @@ from fastervla.deploy.postprocess.retime import (
     TimeAxisQPConfig,
     UniformRetimer,
     box_qp,
+    contact_mask,
     rate_hessian,
 )
 
@@ -237,6 +238,144 @@ def test_time_axis_qp_falls_back_to_uniform_on_failure(monkeypatch: pytest.Monke
     # Matches Uniform at same kappa.
     uni = UniformRetimer(policy_fps=30.0, kappa=1.2).retime(src)
     np.testing.assert_allclose(timed.step_dt, uni.step_dt, rtol=0, atol=1e-12)
+
+
+def _grasp_chunk() -> Chunk:
+    """Small arm steps + gripper closing at frames 12..16 (fine phase)."""
+    c = _chunk()
+    wp = c.waypoints.copy()
+    wp[10:20, 8:22] = wp[10, 8:22]  # near-still arm around the grasp
+    wp[:, 23] = -0.8
+    wp[12:17, 23] = np.linspace(-0.8, 0.0, 5)
+    wp[17:, 23] = 0.0
+    return Chunk(waypoints=wp, model_dt=c.model_dt, obs_ts=c.obs_ts)
+
+
+# 用例: contact_mask 标出夹爪变化前后 window 帧
+# 参数: 无
+def test_contact_mask_dilates_gripper_events() -> None:
+    # Gripper moves on frames 13..16 → ±2 frames → 11..18.
+    m = contact_mask(_grasp_chunk().waypoints, grip_dims=(22, 23), delta=0.02, window=2)
+    assert m[11:19].all()
+    assert not m[:11].any() and not m[19:].any()
+
+
+# 用例: contact_window_scale_kappa 时窗按 κ 拉长（墙钟软区近似不变）
+# 参数: 无
+def test_time_axis_qp_contact_window_scales_with_kappa() -> None:
+    chunk = _grasp_chunk()
+    plain = TimeAxisQP(
+        _cfg(kappa=1.5, contact_kappa=1.0, contact_window_frames=2)
+    ).retime(chunk, state=_state24())
+    scaled = TimeAxisQP(
+        _cfg(
+            kappa=1.5,
+            contact_kappa=1.0,
+            contact_window_frames=2,
+            contact_window_scale_kappa=True,
+        )
+    ).retime(chunk, state=_state24())
+    assert int(plain.chunk.meta["contact_window_frames_used"]) == 2
+    assert int(scaled.chunk.meta["contact_window_frames_used"]) == 3  # ceil(2*1.5)
+    assert int(scaled.chunk.meta["contact_frames"]) >= int(
+        plain.chunk.meta["contact_frames"]
+    )
+
+
+# 用例: contact_kappa 把夹爪窗内速率限制在 policy_fps·contact_kappa
+# 参数: 无
+def test_time_axis_qp_contact_cap_limits_rate_near_grip() -> None:
+    chunk = _grasp_chunk()
+    base = TimeAxisQP(_cfg(kappa=1.2)).retime(chunk, state=_state24())
+    capped = TimeAxisQP(
+        _cfg(kappa=1.2, contact_kappa=1.0, contact_window_frames=2)
+    ).retime(chunk, state=_state24())
+    near = slice(11, 19)
+    assert float(np.max(base.speed[near])) > 30.0 * 1.05  # unconstrained QP speeds up fine phase
+    assert float(np.max(capped.speed[near])) <= 30.0 * 1.0 + 1e-6
+    assert int(capped.chunk.meta["contact_frames"]) == 8
+
+
+# 用例: 夹爪窗减速后，校准仍让整块平均速率对齐 κ（时间挪到搬运段）
+# 参数: 无
+def test_time_axis_qp_contact_cap_keeps_mean_speed() -> None:
+    chunk = _grasp_chunk()
+    capped = TimeAxisQP(
+        _cfg(kappa=1.2, contact_kappa=1.0, contact_window_frames=2)
+    ).retime(chunk, state=_state24())
+    mean_speed = 30.0 / 30.0 / float(np.sum(capped.step_dt))
+    assert abs(mean_speed - 1.2) <= 0.03
+    far = np.r_[0:11, 19:30]
+    assert float(np.mean(capped.speed[far])) > 36.0
+
+
+# 用例: transport_kappa_max 限制所有帧速率
+# 参数: 无
+def test_time_axis_qp_transport_cap() -> None:
+    timed = TimeAxisQP(_cfg(kappa=1.2, transport_kappa_max=1.4)).retime(
+        _grasp_chunk(), state=_state24()
+    )
+    assert float(np.max(timed.speed)) <= 30.0 * 1.4 + 1e-6
+
+
+# 用例: transport_kappa_max < kappa 非法
+# 参数: 无
+def test_time_axis_qp_rejects_transport_cap_below_kappa() -> None:
+    with pytest.raises(ValueError):
+        _cfg(kappa=1.2, transport_kappa_max=1.1)
+
+
+def _dwell_chunk() -> Chunk:
+    """Mostly stationary arms, with a mid-chunk grasp edge."""
+    c = _chunk()
+    wp = np.asarray(c.waypoints, dtype=np.float32).copy()
+    # Freeze arms: tiny steps so dwell_mask fires.
+    wp[:, 8:22] = 0.1
+    wp[15:, 8:22] = 0.1005  # still < 0.005 step from previous after state
+    wp[:, 22:] = 0.5
+    wp[14:17, 23] = -0.5  # gripper event around frame 14
+    return Chunk(waypoints=wp, model_dt=c.model_dt, obs_ts=c.obs_ts)
+
+
+# 用例: dwell_kappa_max 把远离接触的静止帧钉到更高倍速；夹爪窗仍受 contact 限制
+# 参数: 无
+def test_time_axis_qp_dwell_compresses_stationary_far_from_grip() -> None:
+    from fastervla.deploy.postprocess.retime import contact_mask, dwell_mask
+
+    chunk = _dwell_chunk()
+    st = np.zeros(24, dtype=np.float64)
+    st[8:22] = 0.1
+    base = TimeAxisQP(
+        _cfg(kappa=1.2, contact_kappa=1.0, transport_kappa_max=1.4, contact_window_frames=2)
+    ).retime(chunk, state=st)
+    dwell = TimeAxisQP(
+        _cfg(
+            kappa=1.2,
+            contact_kappa=1.0,
+            transport_kappa_max=1.4,
+            dwell_kappa_max=2.0,
+            dwell_step_rad=0.005,
+            contact_window_frames=2,
+        )
+    ).retime(chunk, state=st)
+    pts = np.vstack([st[8:22], chunk.waypoints[:, 8:22]])
+    dp = np.diff(pts, axis=0)
+    near = contact_mask(chunk.waypoints, grip_dims=(22, 23), delta=0.02, window=2)
+    dm = dwell_mask(dp, 0.005) & ~near
+    assert dm.any()
+    assert int(dwell.chunk.meta["dwell_frames"]) == int(dm.sum())
+    # Dwell frames reach ~2×; transport-only run stays ≤1.4×.
+    assert float(np.min(dwell.speed[dm])) >= 30.0 * 1.95
+    assert float(np.max(base.speed)) <= 30.0 * 1.4 + 1e-6
+    # Contact window still capped.
+    assert float(np.max(dwell.speed[near])) <= 30.0 * 1.0 + 1e-6
+
+
+# 用例: dwell_kappa_max < kappa 非法
+# 参数: 无
+def test_time_axis_qp_rejects_dwell_below_kappa() -> None:
+    with pytest.raises(ValueError):
+        _cfg(kappa=1.2, dwell_kappa_max=1.1)
 
 
 # 用例: 与 Uniform 接口兼容 — PlanBuffer 能在 QP 的非均匀 step_dt 上 advance

@@ -1,7 +1,8 @@
-# G2_t2_crsB URDF velocity limits mapped to badminton/pi05 24-dim action layout.
-# Source (g2s): /home/agi/app/share/genie_robot_description/urdf/G2_t2_crsB/model.urdf
-# Layout: g2_tools replay_lerobot_action.NAMES / h7_deploy robot_schema state_names
-# Units: rad/s (revolute). gripper_* use finger joint velocity from URDF.
+# G2 velocity limits for badminton/pi05 24-dim action layout (h7 live URDF).
+# Source (h7): /home/agi/app/share/genie_robot_description/urdf/G2_t2v2_crsB/model.urdf
+#   → /data/parameters/identify/urdf/G2_t2v2_crsB/G2_t2v2_crsB_omnipicker.urdf
+# Layout: g2_tools h7_deploy NAMES / FINGERS
+# Units: rad/s. Note: arm limits are tighter than g2s G2_t2_crsB (3.3/5.2/5.3).
 joint_names:
 - idx01_body_joint1
 - idx02_body_joint2
@@ -36,22 +37,29 @@ v_max:
 - 2.5    # head
 - 2.5
 - 2.5
-- 3.3    # left arm j1-j2
-- 3.3
-- 5.2    # left arm j3-j4
-- 5.2
-- 5.3    # left arm j5-j7
-- 5.3
-- 5.3
-- 3.3    # right arm j1-j2
-- 3.3
-- 5.2
-- 5.2
-- 5.3
-- 5.3
-- 5.3
+- 3.05   # left arm j1-j2  (was 3.3 on g2s G2_t2_crsB)
+- 3.05
+- 3.76   # left arm j3-j4  (was 5.2)
+- 3.76
+- 3.35   # left arm j5-j7  (was 5.3)
+- 3.35
+- 3.35
+- 3.05   # right arm j1-j2
+- 3.05
+- 3.76
+- 3.76
+- 3.35
+- 3.35
+- 3.35
 - 10.0   # gripper_l <- idx31_gripper_l_inner_joint1
 - 10.0   # gripper_r <- idx71_gripper_r_inner_joint1
 velocity_scale: 0.9
 # Gripper channels are often scalar open/close encodings; ignore for skip legality.
 ignore_velocity_dims: [22, 23]
+# Around gripper open/close: force dense samples (no velocity skip) to keep grasp/place.
+# window_s is half-width (±) in seconds; at 30Hz, 1.5s → ±45 frames.
+gripper_no_skip:
+  enabled: true
+  dims: [22, 23]
+  delta: 0.02
+  window_s: 1.5

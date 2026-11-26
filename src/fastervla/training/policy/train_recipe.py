@@ -63,6 +63,7 @@ def load_train_recipe(path: str | Path) -> TrainRecipe:
         skip_frames=skip_frames,
         action_key=str(list(data["action_keys"])[0]),
         dt=1.0 / float(horizon),
+        fps=float(data["fps"]),
     )
 
     return TrainRecipe(
