@@ -1,0 +1,70 @@
+# h7 · MPC 安全重试 #2：先隔离 plan 预览（改 linear）+ lead EMA
+#
+# plan_safe@1.3 仍晃/打飞球。证据：|cmd−ref| 已被夹到 ≤0.10，但 37% 时间 >0.05、
+# 12% 顶满 0.10 → 在 lead 上限抖振；cmd jerk > ref。下一步：
+#   1) mpc_preview=linear（昨夜 M3 同族，排除 plan 时域参考）
+#   2) max_lead 0.10→0.06；闭爪 0.05→0.04
+#   3) 代码：lead EMA（同 Lead smooth）压 ±cap 抖振
+#   4) w_ddy 再抬到 60
+# 生产吞吐仍用 Lead k15 / k145；本配方只做 MPC 排障。
+#
+#   source scripts/h7/env.sh && source /home/agi/deps/acados_env.sh
+#   fastervla-deploy run --config configs/deploy/h7_k1p3_qp_phase_mpc_linear_safe.yaml \
+#     --mode execute --duration-s 120 --tag M5_MPC_lin_safe
+
+meta:
+  name: h7_k1p3_qp_phase_mpc_linear_safe
+  robot_aid: G2A0205C800352
+  machine: h7
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.3
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: qp
+  contact_kappa: 1.0
+  contact_window_frames: 12
+  contact_window_scale_kappa: true
+  contact_grip_delta: 0.08
+  transport_kappa_max: 1.3
+  prefix_lock: true
+  lock_extra_frames: 2
+
+inference:
+  tracker: mpc
+  mpc_preview: linear
+  mpc_w_track0: 12.0
+  mpc_w_ddy: 60.0
+  mpc_dy_max_rad: 0.025
+  mpc_ddy_max_rad: 0.2
+  execution_prefix_frames: 4
+  execution_buffer_frames: 4
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+lead_tracker:
+  tau_s: 0.09
+  gain: 0.35
+  max_lead_rad: 0.06
+  lead_smooth_tau_s: 0.050
+  hold_during_blend: true
+  closed_grip_max_lead_rad: 0.04
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 192.168.112.212
+  discovery_uri: http://192.168.112.212:2379

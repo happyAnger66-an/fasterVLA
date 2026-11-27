@@ -1,0 +1,65 @@
+# h7 · MPC linear_safe 收晃 v2（对照 M5_MPC_lin_safe：5/5 有希望）
+# lin_safe：|cmd−ref| p95≈0.06（plan_safe 曾顶满 0.10）；util p95 75%；仍轻晃。
+# v2 只收护栏/平滑，仍 linear（先别回 plan）：
+#   max_lead 0.06→0.05；闭爪 0.04→0.035；smooth 0.05→0.06；w_ddy 60→80
+#   过门：≥10 球 first≥95%、体感晃明显轻于 lin_safe，再谈 plan 预览。
+#
+#   fastervla-deploy run --config configs/deploy/h7_k1p3_qp_phase_mpc_linear_safe_v2.yaml \
+#     --mode execute --duration-s 180 --tag M5_MPC_lin_v2
+
+meta:
+  name: h7_k1p3_qp_phase_mpc_linear_safe_v2
+  robot_aid: G2A0205C800352
+  machine: h7
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.3
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: qp
+  contact_kappa: 1.0
+  contact_window_frames: 12
+  contact_window_scale_kappa: true
+  contact_grip_delta: 0.08
+  transport_kappa_max: 1.3
+  prefix_lock: true
+  lock_extra_frames: 2
+
+inference:
+  tracker: mpc
+  mpc_preview: linear
+  mpc_w_track0: 14.0
+  mpc_w_ddy: 80.0
+  mpc_dy_max_rad: 0.02
+  mpc_ddy_max_rad: 0.18
+  execution_prefix_frames: 4
+  execution_buffer_frames: 4
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+lead_tracker:
+  tau_s: 0.09
+  gain: 0.35
+  max_lead_rad: 0.05
+  lead_smooth_tau_s: 0.060
+  hold_during_blend: true
+  closed_grip_max_lead_rad: 0.035
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 192.168.112.212
+  discovery_uri: http://192.168.112.212:2379

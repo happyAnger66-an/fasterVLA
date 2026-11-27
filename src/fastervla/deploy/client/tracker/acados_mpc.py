@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -24,16 +25,27 @@ class AcadosMpcTrackerConfig:
     dt_s: float = 0.01
     plant_tau_s: float = 0.057
     solve_budget_ms: float = 12.0
-    dy_max_rad: float = 0.05
-    ddy_max_rad: float = 0.5
+    # Per-tick command step vs last issued arm cmd (post-solve rate limit).
+    # 0.05@100Hz was loose: plan-preview runs saw |cmd−ref| p95≈0.18 / max≈0.33
+    # (Lead clips to 0.10) → sway / desk hits. Prefer ≤0.03 until retuned.
+    dy_max_rad: float = 0.03
+    ddy_max_rad: float = 0.3
     v_max_rad_s: float = 50.0
     q_min_rad: float = -np.pi
     q_max_rad: float = np.pi
     # Optional per-joint boxes (length arm_dim); override scalar q_min_rad/q_max_rad.
     q_min: np.ndarray | None = None
     q_max: np.ndarray | None = None
-    w_track0: float = 10.0
-    w_ddy: float = 10.0
+    w_track0: float = 12.0
+    # Smoothness vs tracking; raise when plan preview overshoots (was 10).
+    w_ddy: float = 30.0
+    # Hard clip of issued arm vs current plan ref (same role as Lead max_lead).
+    # None disables; default matches Lead2 guardrail.
+    max_lead_rad: float | None = 0.10
+    closed_grip_max_lead_rad: float | None = 0.05
+    grip_closed_threshold: float = -0.39
+    # EMA on (cmd−ref) after clip; kills ±lead_cap chatter that knocks balls.
+    lead_smooth_tau_s: float = 0.04
     # Horizon reference:
     #   linear — r → r_{+1 model frame} lerp over N stages (legacy).
     #   plan   — PlanBuffer samples at t + k·dt_s (true preview; caller passes
@@ -60,6 +72,19 @@ class AcadosMpcTrackerConfig:
         if preview not in ("linear", "plan"):
             raise ValueError(f"unknown preview {self.preview!r}")
         self.preview = preview
+        if self.max_lead_rad is not None and float(self.max_lead_rad) <= 0:
+            raise ValueError("max_lead_rad must be > 0 when set")
+        if (
+            self.closed_grip_max_lead_rad is not None
+            and float(self.closed_grip_max_lead_rad) <= 0
+        ):
+            raise ValueError("closed_grip_max_lead_rad must be > 0 when set")
+        if float(self.dy_max_rad) <= 0 or float(self.ddy_max_rad) <= 0:
+            raise ValueError("dy_max_rad and ddy_max_rad must be > 0")
+        if float(self.w_track0) <= 0 or float(self.w_ddy) <= 0:
+            raise ValueError("w_track0 and w_ddy must be > 0")
+        if float(self.lead_smooth_tau_s) < 0:
+            raise ValueError("lead_smooth_tau_s must be >= 0")
         nq = int(self.arm_dim)
         if self.q_min is not None:
             self.q_min = np.asarray(self.q_min, dtype=np.float64).reshape(-1)
@@ -91,6 +116,8 @@ class AcadosMpcTracker:
         self.last_status: str = "init"
         self.last_solve_ms: float = 0.0
         self._last_arm: np.ndarray | None = None
+        self._lead_filt = np.zeros(int(self.config.arm_dim), dtype=np.float64)
+        self._prev_now: float | None = None
         self._solver: ArmMpcAcadosSolver | None = solver
         self._build_error: str | None = None
         nq = int(self.config.arm_dim)
@@ -257,6 +284,29 @@ class AcadosMpcTracker:
             )
 
         u = np.asarray(u_arm, dtype=np.float64).reshape(self.config.arm_dim)
+        # 1) Bound departure from instantaneous plan ref (Lead-equivalent).
+        # 2) EMA the lead to avoid ±cap chatter (plan_safe still rode the clip).
+        # 3) Rate-limit vs last issued cmd.
+        max_lead = self.config.max_lead_rad
+        lead = u - ref_arm
+        if max_lead is not None:
+            lead_cap = float(max_lead)
+            closed = self.config.closed_grip_max_lead_rad
+            if closed is not None and float(ref[20]) > float(
+                self.config.grip_closed_threshold
+            ):
+                lead_cap = min(lead_cap, float(closed))
+            lead = np.clip(lead, -lead_cap, lead_cap)
+        tau = float(self.config.lead_smooth_tau_s)
+        if tau > 0.0 and self._prev_now is not None and float(now) > self._prev_now:
+            dt = float(now) - self._prev_now
+            alpha = 1.0 - math.exp(-dt / tau)
+            self._lead_filt = self._lead_filt + alpha * (lead - self._lead_filt)
+            lead = self._lead_filt
+        else:
+            self._lead_filt = np.asarray(lead, dtype=np.float64).copy()
+        self._prev_now = float(now)
+        u = ref_arm + lead
         if self._last_arm is not None:
             dy = float(self.config.dy_max_rad)
             delta = np.clip(u - self._last_arm, -dy, dy)

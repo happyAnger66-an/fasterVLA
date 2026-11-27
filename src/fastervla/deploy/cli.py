@@ -284,6 +284,30 @@ def _build_parser(
         help="MPC horizon ref: linear (r→r_{+1} lerp, legacy) | plan "
         "(PlanBuffer sampled at t+k·10ms, true preview)",
     )
+    run.add_argument(
+        "--mpc-w-track0",
+        type=float,
+        default=None,
+        help="MPC stage-0 tracking weight (default tracker builtin)",
+    )
+    run.add_argument(
+        "--mpc-w-ddy",
+        type=float,
+        default=None,
+        help="MPC command-acceleration weight; raise to cut sway",
+    )
+    run.add_argument(
+        "--mpc-dy-max-rad",
+        type=float,
+        default=None,
+        help="MPC per-tick |Δcmd| vs last arm cmd (rad)",
+    )
+    run.add_argument(
+        "--mpc-ddy-max-rad",
+        type=float,
+        default=None,
+        help="MPC |ddy| box (rad/step^2)",
+    )
     run.add_argument("--t-infer-min-s", type=float, default=0.0)
     run.add_argument("--t-switch-min-s", type=float, default=0.0)
     # After all add_argument: otherwise action default= clobbers recipe set_defaults.
@@ -736,6 +760,10 @@ def _run_loop(args: argparse.Namespace) -> int:
             arm_chunk_filter_cutoff_hz=float(args.arm_filter_cutoff_hz),
             arm_interpolation=str(args.arm_interp),
             mpc_preview=str(args.mpc_preview),
+            mpc_w_track0=args.mpc_w_track0,
+            mpc_w_ddy=args.mpc_w_ddy,
+            mpc_dy_max_rad=args.mpc_dy_max_rad,
+            mpc_ddy_max_rad=args.mpc_ddy_max_rad,
             qp_prefix_lock=bool(args.qp_prefix_lock),
             qp_lock_extra_frames=int(args.qp_lock_extra),
         )
@@ -761,6 +789,10 @@ def _run_loop(args: argparse.Namespace) -> int:
                     "arm_filter_cutoff_hz": float(args.arm_filter_cutoff_hz),
                     "arm_interp": str(args.arm_interp),
                     "mpc_preview": str(args.mpc_preview),
+                    "mpc_w_track0": args.mpc_w_track0,
+                    "mpc_w_ddy": args.mpc_w_ddy,
+                    "mpc_dy_max_rad": args.mpc_dy_max_rad,
+                    "mpc_ddy_max_rad": args.mpc_ddy_max_rad,
                     "qp_buffer_window": bool(getattr(args, "qp_buffer_window", False)),
                     "qp_contact_kappa": args.qp_contact_kappa,
                     "qp_contact_window": int(args.qp_contact_window),

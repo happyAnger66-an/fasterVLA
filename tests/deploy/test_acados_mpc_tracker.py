@@ -40,9 +40,34 @@ def _cfg(**kwargs: object) -> AcadosMpcTrackerConfig:
         ddy_max_rad=0.5,
         fallback="lead",
         eager_build=False,  # unit tests avoid compiling acados C code
+        # Unit inject paths assert raw solve/dy behavior; disable lead clip unless set.
+        max_lead_rad=None,
+        closed_grip_max_lead_rad=None,
     )
     base.update(kwargs)
     return AcadosMpcTrackerConfig(**base)  # type: ignore[arg-type]
+
+
+# 用例: 成功解后 |cmd−ref| 被 max_lead（闭爪更严）夹紧
+# 参数: 无
+def test_mpc_enforces_max_lead_vs_ref() -> None:
+    tr = AcadosMpcTracker(
+        _cfg(max_lead_rad=0.10, closed_grip_max_lead_rad=0.05, dy_max_rad=1.0)
+    )
+
+    def overshoot(*, q_hat, ref_arm, **_k):
+        return ref_arm + 0.40, "ok", 0.2
+
+    tr._solve = overshoot  # type: ignore[method-assign]
+    ref = _cmd(0.0)  # grip closed (> -0.39) → lead_cap=0.05
+    out = tr.step(
+        q_hat=np.zeros(14),
+        reference=ref,
+        ref_ahead=np.zeros(14),
+        ref_vel=np.zeros(14),
+        now=0.0,
+    )
+    assert float(np.max(np.abs(out[5:19] - ref[5:19]))) <= 0.05 + 1e-9
 
 
 # 用例: 默认 N≈8、14 维、预算默认 12ms、降级到 lead

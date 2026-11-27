@@ -1,0 +1,64 @@
+# h6 · κ=1.4 MPC 真实预览参考 A/B（对照 h6_k1p4_qp_phase_mpc_ctrl.yaml）
+# 机参：aid=G2A0205C900081 · sdk/discovery=10.42.1.101 · 树=/data/project_r/fastervla-h6 · 推理=pi05-apex-h6:8013
+#
+# 唯一差异：inference.mpc_preview: plan
+#   linear（对照）— MPC 时域参考 = 当前 r 线性插到前瞻 1 模型帧
+#   plan（本配方）— MPC 时域参考 = PlanBuffer 在 t + k·10ms 的真实参考（N+1 点）
+# 看：lag / 跟踪误差（尤其拐弯、接触前减速）、cmd jerk、fallback_count、tracker_solve_ms。
+#
+#   source scripts/h6/env.sh   # 需 acados；否则会整场降级 Lead
+#   fastervla-deploy run --config configs/deploy/h6_k1p4_qp_phase_mpc_ctrl_preview.yaml \
+#     --mode execute --duration-s 180 --tag M5_MPC_preview
+
+meta:
+  name: h6_k1p4_qp_phase_mpc_ctrl_preview
+  robot_aid: G2A0205C900081
+  machine: h6
+
+run:
+  mode: shadow
+  duration_s: 600.0
+  results_dir: results
+  flush_every_s: 30.0
+
+policy:
+  host: 127.0.0.1
+  port: 8013
+  prompt: "Put the shuttlecock into the shuttlecock tube."
+
+speed:
+  kappa: 1.4
+  kappa_max: 2.0
+  kappa_min: 1.0
+
+retimer:
+  type: qp
+  contact_kappa: 1.0
+  contact_window_frames: 12
+  contact_window_scale_kappa: true
+  contact_grip_delta: 0.08
+  transport_kappa_max: 1.4
+  prefix_lock: true
+  lock_extra_frames: 2
+
+inference:
+  tracker: mpc
+  mpc_preview: plan
+  execution_prefix_frames: 4
+  execution_buffer_frames: 4
+  arm_chunk_filter: zero_phase_dct
+  arm_chunk_filter_cutoff_hz: 3.0
+  arm_interpolation: pchip
+
+lead_tracker:
+  tau_s: 0.09
+  gain: 0.35
+  max_lead_rad: 0.10
+  lead_smooth_tau_s: 0.040
+  hold_during_blend: true
+  closed_grip_max_lead_rad: 0.05
+
+robot:
+  sdk_root: /home/agi/app/gdk
+  sdk_source_ip: 10.42.1.101
+  discovery_uri: http://10.42.1.101:2379

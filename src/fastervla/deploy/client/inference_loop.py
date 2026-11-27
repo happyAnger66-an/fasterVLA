@@ -86,6 +86,11 @@ class InferenceLoopConfig:
     arm_interpolation: str = "linear"  # linear | pchip
     # MPC horizon reference: linear (r→r_{+1} lerp) | plan (PlanBuffer at t+k·dt).
     mpc_preview: str = "linear"
+    # Optional OCP / post-solve knobs (None → AcadosMpcTrackerConfig defaults).
+    mpc_w_track0: float | None = None
+    mpc_w_ddy: float | None = None
+    mpc_dy_max_rad: float | None = None
+    mpc_ddy_max_rad: float | None = None
     # TimeAxisQP only: lock the new chunk's first d_hat + extra frame durations
     # to the old plan's (same waypoints via RTC prefix) so merges keep rate.
     qp_prefix_lock: bool = False
@@ -244,7 +249,23 @@ class InferenceLoop:
             mpc_kw: dict[str, Any] = {
                 "eager_build": True,
                 "preview": self.config.mpc_preview,
+                # Align post-solve lead clip with Lead2 guardrail (anti-sway).
+                "max_lead_rad": float(self.config.lead_max_lead_rad),
+                "closed_grip_max_lead_rad": (
+                    float(self.config.lead_closed_grip_max_lead_rad)
+                    if self.config.lead_closed_grip_max_lead_rad is not None
+                    else None
+                ),
+                "lead_smooth_tau_s": float(self.config.lead_smooth_tau_s),
             }
+            if self.config.mpc_w_track0 is not None:
+                mpc_kw["w_track0"] = float(self.config.mpc_w_track0)
+            if self.config.mpc_w_ddy is not None:
+                mpc_kw["w_ddy"] = float(self.config.mpc_w_ddy)
+            if self.config.mpc_dy_max_rad is not None:
+                mpc_kw["dy_max_rad"] = float(self.config.mpc_dy_max_rad)
+            if self.config.mpc_ddy_max_rad is not None:
+                mpc_kw["ddy_max_rad"] = float(self.config.mpc_ddy_max_rad)
             jl = getattr(self.platform, "joint_limits", None)
             if callable(jl):
                 lo21, hi21 = jl()
